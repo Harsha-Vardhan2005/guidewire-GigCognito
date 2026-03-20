@@ -1,4 +1,4 @@
-# 🛵 GigShield — AI-Powered Parametric Income Protection for India's Q-Commerce Delivery Partners
+# GigCognito: AI-Powered Parametric Income Protection for India's Q-Commerce Delivery Partners
 
 > **Guidewire DEVTrails 2026 | Phase 1 Submission**
 > Protecting the Last Mile: Automated income insurance for Zepto / Blinkit delivery partners against uncontrollable external disruptions — zero paperwork, instant UPI payout.
