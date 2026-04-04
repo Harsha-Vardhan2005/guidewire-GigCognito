@@ -1,11 +1,27 @@
-// Mock implementation for real-time curfew trigger
+import axios from "axios";
 import { evaluateTrigger } from "./trigger-engine.service";
 
+const CURFEW_FEED_URL = process.env.CURFEW_FEED_URL;
+
 export async function checkCurfewTrigger(zone: { id: string; lat: number; lng: number }) {
-	// In production, poll PIB/state gazette feeds and run NLP classifier
-	// Here, mock a curfew event occasionally
-	const curfewActive = Math.random() > 0.97;
-	const officialGazette = curfewActive;
+	if (!CURFEW_FEED_URL) {
+		console.warn("[Curfew] CURFEW_FEED_URL missing; skipping curfew trigger check");
+		return null;
+	}
+
+	let curfewActive = false;
+	let officialGazette = false;
+	try {
+		const res = await axios.get(CURFEW_FEED_URL, {
+			params: { zoneId: zone.id, lat: zone.lat, lng: zone.lng },
+			timeout: 4000,
+		});
+		curfewActive = Boolean(res.data?.active);
+		officialGazette = Boolean(res.data?.official ?? curfewActive);
+	} catch (err) {
+		console.error("[Curfew] Feed error", err);
+		return null;
+	}
 
 	const decision = evaluateTrigger({
 		type: "T5_CURFEW",

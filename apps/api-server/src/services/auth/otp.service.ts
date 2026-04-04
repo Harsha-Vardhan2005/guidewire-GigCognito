@@ -59,7 +59,7 @@ export function sendOTP(phone: string): {
     verified: false,
   });
 
-  // TODO Production: await twilioClient.messages.create({ to: `+91${phone}`, body: `Your GigShield OTP is ${otp}` })
+  // TODO Production: await twilioClient.messages.create({ to: `+91${phone}`, body: `Your KaryaKavach OTP is ${otp}` })
   console.log(`[OTP] Generated for +91${phone}: ${otp}`); // Remove in prod
 
   return {

@@ -1,7 +1,13 @@
 import cron from "node-cron";
+import { PrismaClient } from "@prisma/client";
 import { checkRainfallTrigger } from "./rainfall-trigger.service";
 import { checkAQITrigger }      from "./aqi-trigger.service";
+import { checkHeatwaveTrigger } from "./heatwave-trigger.service";
+import { checkCurfewTrigger }   from "./curfew-trigger.service";
+import { checkFestivalTrigger } from "./festival-trigger.service";
 import { runClaimPipeline }     from "../claim/claim-pipeline.service";
+
+const prisma = new PrismaClient();
 
 const ACTIVE_ZONES = [
   { id: "BLR_KOR_01", lat: 12.9279, lng: 77.6271 },
@@ -9,45 +15,150 @@ const ACTIVE_ZONES = [
   { id: "MUM_ANH_01", lat: 19.1136, lng: 72.8697 },
 ];
 
-const MOCK_WORKER = {
-  workerId:        "mock_rajan_001",
-  workerName:      "Rajan Kumar",
-  policyId:        "POL_MOCK_001",
-  policyStatus:    "ACTIVE",
-  policyZoneId:    "BLR_KOR_01",
-  tier:            "standard" as const,
-  upiId:           "rajan@phonepe",
-  accountCreatedAt: new Date(Date.now() - 14 * 86400_000),
-  waitingUntil:    new Date(Date.now() - 7  * 86400_000),
-  claimsThisWeek:  0,
+type ActivePolicyRecord = {
+  id: string;
+  zoneId: string;
+  tier: "basic" | "standard" | "premium";
+  status: string;
+  waitingUntil: Date;
+  worker: {
+    id: string;
+    name: string | null;
+    upiId: string | null;
+    createdAt: Date;
+    claims: { id: string }[];
+  };
 };
+
+async function getActivePoliciesByZone(zoneId: string): Promise<ActivePolicyRecord[]> {
+  return prisma.policy.findMany({
+    where: {
+      zoneId,
+      status: "ACTIVE",
+      expiresAt: { gt: new Date() },
+    },
+    include: {
+      worker: {
+        include: {
+          claims: {
+            where: {
+              createdAt: {
+                gte: new Date(Date.now() - 7 * 24 * 60 * 60 * 1000),
+              },
+            },
+            select: { id: true },
+          },
+        },
+      },
+    },
+  }) as unknown as ActivePolicyRecord[];
+}
 
 export function startTriggerPoller() {
   cron.schedule("*/15 * * * *", async () => {
     console.log("[TriggerPoller] Running zone checks", new Date().toISOString());
     for (const zone of ACTIVE_ZONES) {
+      const activePolicies = await getActivePoliciesByZone(zone.id);
+      if (!activePolicies.length) {
+        continue;
+      }
+
       const rain = await checkRainfallTrigger(zone);
-      if (rain?.action === "AUTO_TRIGGER" && zone.id === MOCK_WORKER.policyZoneId) {
-        await runClaimPipeline(rain, MOCK_WORKER);
+      if (rain?.action === "AUTO_TRIGGER") {
+        for (const p of activePolicies) {
+          if (!p.worker.upiId) continue;
+          await runClaimPipeline(rain, {
+            workerId: p.worker.id,
+            workerName: p.worker.name || "Worker",
+            policyId: p.id,
+            policyStatus: p.status,
+            policyZoneId: p.zoneId,
+            tier: p.tier,
+            upiId: p.worker.upiId,
+            accountCreatedAt: p.worker.createdAt,
+            waitingUntil: p.waitingUntil,
+            claimsThisWeek: p.worker.claims.length,
+          });
+        }
       }
+
       const aqi = await checkAQITrigger(zone);
-      if (aqi?.action === "AUTO_TRIGGER" && zone.id === MOCK_WORKER.policyZoneId) {
-        await runClaimPipeline(aqi, MOCK_WORKER);
+      if (aqi?.action === "AUTO_TRIGGER") {
+        for (const p of activePolicies) {
+          if (!p.worker.upiId) continue;
+          await runClaimPipeline(aqi, {
+            workerId: p.worker.id,
+            workerName: p.worker.name || "Worker",
+            policyId: p.id,
+            policyStatus: p.status,
+            policyZoneId: p.zoneId,
+            tier: p.tier,
+            upiId: p.worker.upiId,
+            accountCreatedAt: p.worker.createdAt,
+            waitingUntil: p.waitingUntil,
+            claimsThisWeek: p.worker.claims.length,
+          });
+        }
       }
+
       // Heatwave
       const heat = await checkHeatwaveTrigger(zone);
-      if (heat?.action === "AUTO_TRIGGER" && zone.id === MOCK_WORKER.policyZoneId) {
-        await runClaimPipeline(heat, MOCK_WORKER);
+      if (heat?.action === "AUTO_TRIGGER") {
+        for (const p of activePolicies) {
+          if (!p.worker.upiId) continue;
+          await runClaimPipeline(heat, {
+            workerId: p.worker.id,
+            workerName: p.worker.name || "Worker",
+            policyId: p.id,
+            policyStatus: p.status,
+            policyZoneId: p.zoneId,
+            tier: p.tier,
+            upiId: p.worker.upiId,
+            accountCreatedAt: p.worker.createdAt,
+            waitingUntil: p.waitingUntil,
+            claimsThisWeek: p.worker.claims.length,
+          });
+        }
       }
+
       // Curfew
       const curfew = await checkCurfewTrigger(zone);
-      if (curfew?.action === "AUTO_TRIGGER" && zone.id === MOCK_WORKER.policyZoneId) {
-        await runClaimPipeline(curfew, MOCK_WORKER);
+      if (curfew?.action === "AUTO_TRIGGER") {
+        for (const p of activePolicies) {
+          if (!p.worker.upiId) continue;
+          await runClaimPipeline(curfew, {
+            workerId: p.worker.id,
+            workerName: p.worker.name || "Worker",
+            policyId: p.id,
+            policyStatus: p.status,
+            policyZoneId: p.zoneId,
+            tier: p.tier,
+            upiId: p.worker.upiId,
+            accountCreatedAt: p.worker.createdAt,
+            waitingUntil: p.waitingUntil,
+            claimsThisWeek: p.worker.claims.length,
+          });
+        }
       }
+
       // Festival Blockage
       const festival = await checkFestivalTrigger(zone);
-      if (festival?.action === "AUTO_TRIGGER" && zone.id === MOCK_WORKER.policyZoneId) {
-        await runClaimPipeline(festival, MOCK_WORKER);
+      if (festival?.action === "AUTO_TRIGGER") {
+        for (const p of activePolicies) {
+          if (!p.worker.upiId) continue;
+          await runClaimPipeline(festival, {
+            workerId: p.worker.id,
+            workerName: p.worker.name || "Worker",
+            policyId: p.id,
+            policyStatus: p.status,
+            policyZoneId: p.zoneId,
+            tier: p.tier,
+            upiId: p.worker.upiId,
+            accountCreatedAt: p.worker.createdAt,
+            waitingUntil: p.waitingUntil,
+            claimsThisWeek: p.worker.claims.length,
+          });
+        }
       }
     }
   });

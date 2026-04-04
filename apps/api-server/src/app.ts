@@ -6,6 +6,7 @@ import claimRoutes  from "./routes/claim.routes";
 import workerRoutes from "./routes/worker.routes";
 import communityTriggersRoutes from "./routes/community-triggers.routes";
 import workerDashboardRoutes from "./routes/worker-dashboard.routes";
+import feedsRoutes from "./routes/feeds.routes";
 
 const app = express();
 
@@ -25,5 +26,6 @@ app.use("/claims", claimRoutes);
 app.use("/worker", workerRoutes);
 app.use("/api/community-triggers", communityTriggersRoutes);
 app.use("/api/worker-dashboard", workerDashboardRoutes);
+app.use("/feeds", feedsRoutes);
 
 export default app;

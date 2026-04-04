@@ -3,13 +3,11 @@ import axios from "axios";
 const RZP_KEY    = process.env.RAZORPAY_KEY_ID     ?? "MOCK_KEY";
 const RZP_SECRET = process.env.RAZORPAY_KEY_SECRET ?? "MOCK_SECRET";
 const RZP_ACCT   = process.env.RAZORPAY_ACCOUNT_NO ?? "MOCK_ACCT";
-const IS_MOCK    = RZP_KEY === "MOCK_KEY";
 
 export interface RZPPayoutResult {
   id:     string;
   status: string;
   utr?:   string;
-  mock?:  boolean;
 }
 
 export async function initiateUPIPayout(params: {
@@ -18,14 +16,8 @@ export async function initiateUPIPayout(params: {
   claimId:          string;
   fundAccountId?:   string;
 }): Promise<RZPPayoutResult> {
-  if (IS_MOCK) {
-    await new Promise(r => setTimeout(r, 300));
-    return {
-      id:     `rzp_mock_${Date.now()}`,
-      status: "processing",
-      utr:    `UTR${Math.floor(Math.random() * 1e10)}`,
-      mock:   true,
-    };
+  if (RZP_KEY === "MOCK_KEY" || RZP_SECRET === "MOCK_SECRET" || RZP_ACCT === "MOCK_ACCT") {
+    throw new Error("Razorpay credentials are not configured");
   }
 
   const auth = Buffer.from(`${RZP_KEY}:${RZP_SECRET}`).toString("base64");
@@ -38,7 +30,7 @@ export async function initiateUPIPayout(params: {
       currency:        "INR",
       mode:            "UPI",
       purpose:         "payout",
-      narration:       `GigShield claim ${params.claimId}`,
+      narration:       `KaryaKavach claim ${params.claimId}`,
     },
     { headers: { Authorization: `Basic ${auth}` } }
   );

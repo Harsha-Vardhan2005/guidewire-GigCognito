@@ -2,11 +2,12 @@
 import { Router } from "express";
 import { runFraudDetection, recordPing } from "../services/fraud/fraud-detector.service";
 import { putWorkerProfile } from "../controllers/worker.controller";
+import { authenticateWorker } from "../middlewares/authenticateWorker";
 
 const router = Router();
 
 // PUT /worker/profile — update worker details
-router.put("/profile", putWorkerProfile);
+router.put("/profile", authenticateWorker, putWorkerProfile);
 
 /**
  * POST /worker/location

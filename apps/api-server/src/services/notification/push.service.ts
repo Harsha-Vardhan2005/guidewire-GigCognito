@@ -21,13 +21,13 @@ export interface NotifyParams {
 function buildMessage(p: NotifyParams): string {
   switch (p.status) {
     case "APPROVED":
-      return `GigShield: Aapka ₹${p.amount} ${p.upiId} pe bhej diya gaya. Claim ID: ${p.claimId}. Surakshit rahein.`;
+      return `KaryaKavach: Aapka ₹${p.amount} ${p.upiId} pe bhej diya gaya. Claim ID: ${p.claimId}. Surakshit rahein.`;
     case "PROVISIONAL":
-      return `GigShield: ₹${p.amount} abhi bheja gaya. ₹${p.heldAmt ?? 0} kal subah tak aa jayega. Claim ID: ${p.claimId}.`;
+      return `KaryaKavach: ₹${p.amount} abhi bheja gaya. ₹${p.heldAmt ?? 0} kal subah tak aa jayega. Claim ID: ${p.claimId}.`;
     case "ROLLBACK":
-      return `GigShield: Aapka ₹${p.amount} process ho raha hai — 24 ghante mein aa jayega. Claim ID: ${p.claimId}.`;
+      return `KaryaKavach: Aapka ₹${p.amount} process ho raha hai — 24 ghante mein aa jayega. Claim ID: ${p.claimId}.`;
     case "REJECTED":
-      return `GigShield: Aapka claim verify nahi ho saka. Appeal karne ke liye app kholen. Claim ID: ${p.claimId}.`;
+      return `KaryaKavach: Aapka claim verify nahi ho saka. Appeal karne ke liye app kholen. Claim ID: ${p.claimId}.`;
   }
 }
 

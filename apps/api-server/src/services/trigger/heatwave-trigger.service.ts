@@ -5,21 +5,19 @@ import { evaluateTrigger } from "./trigger-engine.service";
 const OWM_KEY = process.env.OWM_API_KEY ?? "MOCK";
 
 export async function checkHeatwaveTrigger(zone: { id: string; lat: number; lng: number }) {
-	try {
-		let tempC = 0;
-		let imdAdvisory = false;
+	if (!OWM_KEY || OWM_KEY === "MOCK") {
+		console.warn("[Heatwave] OWM_API_KEY missing; skipping heatwave trigger check");
+		return null;
+	}
 
-		if (OWM_KEY !== "MOCK") {
-			const res = await axios.get("https://api.openweathermap.org/data/3.0/onecall", {
-				params: { lat: zone.lat, lon: zone.lng, exclude: "minutely,daily", appid: OWM_KEY, units: "metric" },
-			});
-			tempC = res.data?.current?.temp ?? 0;
-			imdAdvisory = res.data?.alerts?.some((a: { event: string }) =>
-				a.event.toLowerCase().includes("heat")) ?? false;
-		} else {
-			tempC = Math.random() > 0.9 ? 45 : 36;
-			imdAdvisory = tempC > 44;
-		}
+	try {
+		// Use 2.5/weather (free tier) for current temperature.
+		const res = await axios.get("https://api.openweathermap.org/data/2.5/weather", {
+			params: { lat: zone.lat, lon: zone.lng, appid: OWM_KEY, units: "metric" },
+		});
+		const tempC = res.data?.main?.temp ?? 0;
+		const weatherMain = String(res.data?.weather?.[0]?.main ?? "").toLowerCase();
+		const imdAdvisory = weatherMain.includes("heat");
 
 		const decision = evaluateTrigger({
 			type: "T4_HEATWAVE",
@@ -33,7 +31,8 @@ export async function checkHeatwaveTrigger(zone: { id: string; lat: number; lng:
 		console.log(`[Heatwave] Zone ${zone.id} | temp=${tempC}°C | ${decision.action} (${decision.confidence})`);
 		return decision;
 	} catch (err) {
-		console.error("[Heatwave] API error", err);
+		const message = err instanceof Error ? err.message : String(err);
+		console.error(`[Heatwave] API error: ${message}`);
 		return null;
 	}
 }

@@ -27,6 +27,7 @@ interface Quote { basePremium: number; seasonalAdj: number; zoneAdj: number; ten
 
 export default function Onboarding() {
   const [step, setStep] = useState(0);
+  const [name, setName] = useState("");
   const [phone, setPhone] = useState("");
   const [otp, setOtp] = useState(["", "", "", ""]);
   const [otpSent, setOtpSent] = useState(false);
@@ -140,6 +141,7 @@ export default function Onboarding() {
   }
 
   function goStep2() {
+    if (!name.trim()) { setErrors({ name: "Enter your full name" }); return; }
     if (!platformId.trim()) { setErrors({ platformId: "Enter your delivery partner ID" }); return; }
     setErrors({});
     setStep(2);
@@ -163,14 +165,42 @@ export default function Onboarding() {
     if (!upiId.trim()) { setErrors({ upiId: "Enter your UPI ID" }); return; }
     setErrors({});
     setSubmitting(true);
-    await new Promise(r => setTimeout(r, 1200));
-    setSubmitting(false);
-    navigate("/dashboard");
+    try {
+      const token = localStorage.getItem("gs_token");
+      await fetch(`${API_BASE}/worker/profile`, {
+        method: "PUT",
+        headers: {
+          "Content-Type": "application/json",
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
+        body: JSON.stringify({
+          name: name.trim(),
+          city: CITIES[city].label,
+          zoneId: zone,
+          platformId: `${platform}:${platformId}`,
+          upiId,
+        }),
+      });
+
+      await fetch(`${API_BASE}/policy/create-or-renew`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
+        body: JSON.stringify({ tier }),
+      });
+    } catch (err) {
+      console.error("[Onboarding] profile update failed", err);
+    } finally {
+      setSubmitting(false);
+      navigate("/dashboard");
+    }
   }
 
   const progress = done ? 100 : Math.round((step / 6) * 100);
 
-  if (done) return <SuccessScreen workerName="Rajan" zone={zones.find(z => z.id === zone)?.label ?? zone} premium={quote?.finalPremium ?? 89} tier={tier} />;
+  if (done) return <SuccessScreen workerName={name.trim() || "Partner"} zone={zones.find(z => z.id === zone)?.label ?? zone} premium={quote?.finalPremium ?? 89} tier={tier} />;
 
   return (
     <div style={{ minHeight: "100vh", background: "#0A0E1A", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "flex-start", fontFamily: "'DM Sans', system-ui, sans-serif", padding: "0 0 40px" }}>
@@ -206,7 +236,7 @@ export default function Onboarding() {
       <div style={{ width: "100%", maxWidth: 420, padding: "0 20px" }}>
         <div style={{ paddingTop: 28, paddingBottom: 20 }}>
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
-            <span style={{ fontFamily: "'Space Mono', monospace", color: "#378ADD", fontSize: 13, fontWeight: 700, letterSpacing: "0.05em" }}>GIGSHIELD</span>
+            <span style={{ fontFamily: "'Space Mono', monospace", color: "#378ADD", fontSize: 13, fontWeight: 700, letterSpacing: "0.05em" }}>KARYAKAVACH</span>
             <span style={{ fontSize: 12, color: "rgba(255,255,255,0.3)", fontFamily: "'Space Mono', monospace" }}>{step}/5</span>
           </div>
           <div style={{ height: 2, background: "rgba(255,255,255,0.08)", borderRadius: 2 }}>
@@ -259,6 +289,10 @@ export default function Onboarding() {
           <div className="fade-in">
             <p style={{ fontSize: 22, fontWeight: 600, color: "#fff", margin: "0 0 6px" }}>Your delivery platform</p>
             <p style={{ fontSize: 14, color: "rgba(255,255,255,0.4)", margin: "0 0 28px" }}>We'll cross-verify your active status during disruptions.</p>
+            <p className="label">Full name</p>
+            <input className="gs-input" placeholder="e.g. Rajan Kumar" value={name} onChange={e => setName(e.target.value)} style={{ marginBottom: 4 }} />
+            {errors.name && <p className="err">{errors.name}</p>}
+            <div style={{ height: 14 }} />
             <p className="label">Platform</p>
             <div style={{ display: "flex", gap: 8, marginBottom: 20 }}>
               {["Zepto", "Blinkit", "Both"].map(p => (
@@ -378,7 +412,7 @@ export default function Onboarding() {
                 </div>
               ))}
             </div>
-            <p style={{ fontSize: 11, color: "rgba(255,255,255,0.25)", margin: "12px 0 0", lineHeight: 1.6 }}>By activating, you agree to the GigShield policy terms. Your location is used only for zone matching and purged after 30 days (DPDPA 2023).</p>
+            <p style={{ fontSize: 11, color: "rgba(255,255,255,0.25)", margin: "12px 0 0", lineHeight: 1.6 }}>By activating, you agree to the KaryaKavach policy terms. Your location is used only for zone matching and purged after 30 days (DPDPA 2023).</p>
             <button className="gs-btn gs-btn-primary" style={{ marginTop: 16, background: "#1D9E75" }} disabled={submitting} onClick={finish}>
               {submitting ? "Activating coverage..." : `Activate — Pay ₹${quote?.finalPremium ?? "—"}/week`}
             </button>
@@ -402,7 +436,7 @@ function SuccessScreen({ workerName, zone, premium, tier }: { workerName: string
           <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="#1D9E75" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
         </div>
         <p style={{ fontSize: 26, fontWeight: 600, color: "#fff", margin: "0 0 8px", animation: "fadeUp 0.4s 0.1s both" }}>You're covered, {workerName}</p>
-        <p style={{ fontSize: 14, color: "rgba(255,255,255,0.45)", margin: "0 0 32px", animation: "fadeUp 0.4s 0.2s both" }}>GigShield is now active for <strong style={{ color: "#fff" }}>{zone}</strong>. If a disruption hits your zone, we'll send money to your UPI automatically — no action needed.</p>
+        <p style={{ fontSize: 14, color: "rgba(255,255,255,0.45)", margin: "0 0 32px", animation: "fadeUp 0.4s 0.2s both" }}>KaryaKavach is now active for <strong style={{ color: "#fff" }}>{zone}</strong>. If a disruption hits your zone, we'll send money to your UPI automatically — no action needed.</p>
         <div style={{ background: "rgba(255,255,255,0.04)", borderRadius: 12, padding: "16px", border: "1px solid rgba(255,255,255,0.08)", animation: "fadeUp 0.4s 0.3s both" }}>
           {[
             ["Zone", zone],

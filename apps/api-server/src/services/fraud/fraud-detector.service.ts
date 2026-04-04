@@ -1,12 +1,12 @@
 /**
- * GigShield — 8-Signal GPS Anti-Spoofing Engine
+ * KaryaKavach — 8-Signal GPS Anti-Spoofing Engine
  * Uses real IP geolocation, OpenWeatherMap, and WAQI to cross-validate claims.
  */
 
 import axios from "axios";
 
-const OWM_KEY  = process.env.OWM_API_KEY  || "MOCK";
-const WAQI_TOKEN = process.env.WAQI_TOKEN || "MOCK";
+const OWM_KEY = process.env.OWM_API_KEY;
+const WAQI_TOKEN = process.env.WAQI_TOKEN;
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -226,6 +226,10 @@ function checkPlatformStatus(ping: LocationPing): FraudSignal {
 // ─── Signal 7: Real Weather at Location (OpenWeatherMap) ─────────────────────
 
 async function checkRealWeather(ping: LocationPing, triggerType: string): Promise<FraudSignal> {
+  if (!OWM_KEY) {
+    return { name: "Real Weather Match", passed: false, score: 0.1, detail: "OWM_API_KEY not configured" };
+  }
+
   try {
     const res = await axios.get("https://api.openweathermap.org/data/2.5/weather", {
       params: { lat: ping.lat, lon: ping.lng, appid: OWM_KEY, units: "metric" },
@@ -272,6 +276,10 @@ async function checkRealAQI(ping: LocationPing, triggerType: string): Promise<Fr
   if (triggerType !== "T2_AQI") {
     return { name: "Real AQI Match", passed: true, score: 0, detail: "Not an AQI trigger — skipped" };
   }
+  if (!WAQI_TOKEN) {
+    return { name: "Real AQI Match", passed: false, score: 0.1, detail: "WAQI_TOKEN not configured" };
+  }
+
   try {
     const res = await axios.get(
       `https://api.waqi.info/feed/geo:${ping.lat};${ping.lng}/`,

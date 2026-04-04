@@ -17,8 +17,17 @@ const CommunityTriggersPage: React.FC = () => {
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
 
+  const authHeaders = (): Record<string, string> => {
+    const token = localStorage.getItem("gs_token");
+    return token ? { Authorization: `Bearer ${token}` } : {};
+  };
+
   useEffect(() => {
-    fetch("/api/community-triggers/list")
+    fetch("/api/community-triggers/list", {
+      headers: {
+        ...authHeaders(),
+      },
+    })
       .then(res => res.json())
       .then(setProposals);
   }, []);
@@ -31,7 +40,7 @@ const CommunityTriggersPage: React.FC = () => {
     try {
       const res = await fetch("/api/community-triggers/propose", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", ...authHeaders() },
         body: JSON.stringify({ title, description })
       });
       const data = await res.json();
@@ -41,7 +50,7 @@ const CommunityTriggersPage: React.FC = () => {
         setTitle("");
         setDescription("");
       } else {
-        setError(data.error || "Failed to propose");
+        setError(data.error || data.message || "Failed to propose");
       }
     } catch (err) {
       setError("Network error");
@@ -56,7 +65,7 @@ const CommunityTriggersPage: React.FC = () => {
     try {
       const res = await fetch("/api/community-triggers/vote", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", ...authHeaders() },
         body: JSON.stringify({ proposalId: id })
       });
       const data = await res.json();
@@ -64,7 +73,7 @@ const CommunityTriggersPage: React.FC = () => {
         setSuccess("Voted!");
         setProposals(p => p.map(pr => pr.id === id ? data : pr));
       } else {
-        setError(data.error || "Failed to vote");
+        setError(data.error || data.message || "Failed to vote");
       }
     } catch (err) {
       setError("Network error");

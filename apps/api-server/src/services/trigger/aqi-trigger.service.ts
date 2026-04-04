@@ -5,20 +5,17 @@ import { evaluateTrigger } from "./trigger-engine.service";
 const WAQI_TOKEN = process.env.WAQI_TOKEN ?? "MOCK";
 
 export async function checkAQITrigger(zone: { id: string; lat: number; lng: number }) {
-  try {
-    let waqiAqi  = 0;
-    let cpcbAqi  = 0;
+  if (!WAQI_TOKEN || WAQI_TOKEN === "MOCK") {
+    console.warn("[AQI] WAQI_TOKEN missing; skipping AQI trigger check");
+    return null;
+  }
 
-    if (WAQI_TOKEN !== "MOCK") {
-      const res = await axios.get(
-        `https://api.waqi.info/feed/geo:${zone.lat};${zone.lng}/?token=${WAQI_TOKEN}`
-      );
-      waqiAqi = res.data?.data?.aqi ?? 0;
-      cpcbAqi = waqiAqi * 0.95;
-    } else {
-      waqiAqi = Math.random() > 0.9 ? 420 : 150;
-      cpcbAqi = waqiAqi * 0.97;
-    }
+  try {
+    const res = await axios.get(
+      `https://api.waqi.info/feed/geo:${zone.lat};${zone.lng}/?token=${WAQI_TOKEN}`
+    );
+    const waqiAqi = res.data?.data?.aqi ?? 0;
+    const cpcbAqi = waqiAqi * 0.95;
 
     const decision = evaluateTrigger({
       type: "T2_AQI",
