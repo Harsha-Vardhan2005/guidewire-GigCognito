@@ -305,6 +305,50 @@ GigShield operates at **pin code / dark store zone level** — not city level. A
 
 ---
 
+
+## 8A. Underwriting, Triggers, Pricing & Actuarial Logic (Parametric Insurance)
+
+### Underwriting
+- Risk is assessed by city, peril type (trigger), and worker activity tier.
+- Only workers with active policies, correct zone registration, and no duplicate claims are eligible for payout.
+- New accounts have a 7-day waiting period before first claim eligibility.
+
+### Triggers
+- Payouts are triggered by objective, third-party data (e.g., weather, AQI, government advisories).
+- Every trigger requires at least two independent data sources to agree (dual-source rule).
+- Triggers are polled every 15 minutes; if threshold is crossed, eligible workers are auto-processed for payout.
+- No manual claim filing — the process is zero-touch for the worker.
+
+### Pricing — Weekly Premium Model
+- Target premium range: ₹20–₹750 per worker per week (see tier table below).
+- Formula:
+  
+  $\text{Weekly Premium} = (\text{Trigger Probability}) \times (\text{Avg Income Lost per Day}) \times (\text{Days Exposed})$
+
+- Premiums are adjusted for city, peril type, and worker activity tier.
+- Weekly cycle matches gig payout rhythm — never monthly.
+
+### Actuarial Basics
+- BCR (Burning Cost Rate):
+  
+  $\text{BCR} = \frac{\text{Total Claims Paid}}{\text{Total Premium Collected}}$
+
+- Target BCR: 0.55–0.70 (i.e., 55–70% of premium goes to payouts).
+- If Loss Ratio > 85%, new enrollments are suspended to control risk.
+- Stress scenario modeling: e.g., simulate a 14-day monsoon to test solvency and payout sufficiency.
+
+
+**Implementation:**
+- The backend (Node.js, see `/apps/api-server/src/services/claim/claim-pipeline.service.ts`, `/claim.service.ts`, and `/policy/policy.service.ts`) enforces all underwriting, trigger, pricing, payout, and audit logic:
+  - Weather API and other data confirm event threshold.
+  - Worker eligibility and anti-fraud checks (including GPS) are performed before payout.
+  - Payout is calculated as fixed amount per day × number of trigger days.
+  - Transfers are initiated automatically; all records are updated.
+  - **Detailed audit logging**: Every policy and claim action (creation, approval, rejection, payout, rollback, fraud flag, admin review, appeal) is logged to a centralized audit log (`logs/audit.log`) with timestamp, action, actor, entityId, and details, aligned with IRDAI requirements.
+  - PolicyCenter and BillingCenter logging stubs are included for future integration.
+  - The process is zero-touch for the worker and completes within minutes.
+
+---
 ## 8. Weekly Premium Model & Business Viability
 
 ### Why Weekly?
@@ -383,19 +427,26 @@ A policy term is **7 calendar days** from the activation timestamp.
 - ❌ Events outside the registered operating zone
 - ❌ Workers who were "offline/unavailable" on platform before the trigger fired
 
-### Key Policy Rules
+
+### Key Policy Rules (Enforced in Code)
 
 | Rule | Detail |
 |---|---|
-| Zone lock | Coverage valid only for registered zone selected before weekly window opens |
-| Earnings tier lock | Tier locked 30 days — cannot upgrade immediately before a known weather event |
-| Waiting period | New accounts: 7 calendar days before first claim eligibility |
+| Zone lock | Coverage valid only for registered zone selected before weekly window opens (enforced in backend) |
+| Earnings tier lock | Tier locked 30 days — cannot upgrade immediately before a known weather event (backend logic) |
+| Waiting period | New accounts: 7 calendar days before first claim eligibility (backend-enforced) |
 | Minimum commitment | 4-week rolling subscription — prevents adverse selection via selective weekly activation before known weather events |
 | Free-look period | 7-day free-look from activation (IRDAI mandatory for digital policies) |
-| Payout cap | Maximum ₹2,240/week regardless of trigger event count |
+| Payout cap | Maximum ₹2,240/week regardless of trigger event count (backend-enforced) |
 | Basis risk disclosure | If trigger occurs but worker is outside covered zone, no payout. Zone-level, not individual-loss-verified. |
-| Appeals | Any rejected claim: 72-hour appeal window via 60-second voice note + timestamped selfie |
+| Appeals | Any rejected claim: 72-hour appeal window via 60-second voice note + timestamped selfie (admin review queue) |
 | Bima Sugam compliance | Distribution via IRDAI Bima Sugam API-compliant digital channel |
+| **Audit logging** | Every policy and claim action (creation, approval, rejection, payout, rollback, fraud flag, admin review, appeal) is logged to `logs/audit.log` for regulatory compliance |
+
+**Automation & Compliance:**
+- All policy, pricing, payout, and anti-fraud rules are enforced in backend code (`/apps/api-server/src/services/claim/claim-pipeline.service.ts`, `/claim.service.ts`, `/policy/policy.service.ts`).
+- The process is zero-touch: claims and payouts are fully automated, with dual-source triggers and multi-signal fraud checks.
+- All actions are logged for auditability and IRDAI compliance (see `logs/audit.log`).
 
 ---
 
@@ -847,7 +898,8 @@ Razorpay error → retry 3× with exponential backoff (1 min, 5 min, 15 min) →
 | Rate limiting | 100 req/min per IP via express-rate-limit |
 | SQL injection prevention | Prisma ORM with parameterised queries |
 
-### Reliability
+
+### Reliability & Audit Logging
 
 | Requirement | Implementation |
 |---|---|
@@ -855,6 +907,7 @@ Razorpay error → retry 3× with exponential backoff (1 min, 5 min, 15 min) →
 | API failure fallback | Redis (ElastiCache) cached last-known zone data used for up to 1 hour if API fails |
 | Payout queue durability | Bull + Redis; jobs persist across server restarts, retried automatically on failure |
 | Error logging | Winston structured logger — all trigger events, claim decisions, and payout outcomes logged to AWS CloudWatch |
+| **Audit logging (IRDAI-aligned)** | Every policy and claim action (creation, approval, rejection, payout, rollback, fraud flag, admin review, appeal) is logged to `logs/audit.log` with timestamp, action, actor, entityId, and details. |
 
 ### Scalability
 

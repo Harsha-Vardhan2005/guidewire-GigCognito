@@ -34,6 +34,21 @@ export function startTriggerPoller() {
       if (aqi?.action === "AUTO_TRIGGER" && zone.id === MOCK_WORKER.policyZoneId) {
         await runClaimPipeline(aqi, MOCK_WORKER);
       }
+      // Heatwave
+      const heat = await checkHeatwaveTrigger(zone);
+      if (heat?.action === "AUTO_TRIGGER" && zone.id === MOCK_WORKER.policyZoneId) {
+        await runClaimPipeline(heat, MOCK_WORKER);
+      }
+      // Curfew
+      const curfew = await checkCurfewTrigger(zone);
+      if (curfew?.action === "AUTO_TRIGGER" && zone.id === MOCK_WORKER.policyZoneId) {
+        await runClaimPipeline(curfew, MOCK_WORKER);
+      }
+      // Festival Blockage
+      const festival = await checkFestivalTrigger(zone);
+      if (festival?.action === "AUTO_TRIGGER" && zone.id === MOCK_WORKER.policyZoneId) {
+        await runClaimPipeline(festival, MOCK_WORKER);
+      }
     }
   });
   console.log("[TriggerPoller] Started — polling every 15 min");
