@@ -50,11 +50,17 @@ async function verifyWithLocalSources(input: { zoneId: string; title: string; de
       description: input.description,
     });
 
-    return {
-      verified: Boolean(direct.verified),
-      source: String(direct.sourceMode || "local-verifier"),
-      evidence: Array.isArray(direct.sources) ? direct.sources.map(String) : [],
-    };
+    // Only commit to a positive result. A negative from the in-process verifier
+    // (e.g. no mock data for this zone, or low score) should fall through to the
+    // heuristic — the verifier returning false is not the same as "evidence exists
+    // and was checked against real external sources".
+    if (direct.verified) {
+      return {
+        verified: true,
+        source: String(direct.sourceMode || "local-verifier"),
+        evidence: Array.isArray(direct.sources) ? direct.sources.map(String) : [],
+      };
+    }
   } catch {
     // Fall through to HTTP verifier, then heuristic fallback.
   }
