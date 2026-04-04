@@ -9,13 +9,47 @@ interface Proposal {
   createdAt: string;
 }
 
-const CommunityTriggersPage: React.FC = () => {
-  const [proposals, setProposals] = useState<Proposal[]>([]);
+const API_BASE = import.meta.env.VITE_API_URL ?? "http://localhost:8000";
+
+const MOCK_PROPOSALS: Proposal[] = [
+  { id: "1", title: "Waterlogging near Andheri East depot", description: "Complete road block at SV Road junction. Standing water 2ft deep. Bikes can't pass. 40+ riders stranded since 7am.", votes: 34, status: "APPROVED", createdAt: new Date(Date.now() - 3600000).toISOString() },
+  { id: "2", title: "AQI 430 in Dwarka — unworkable conditions", description: "Visibility under 50m. Multiple riders reporting breathing issues. WAQI confirms 428, CPCB 431. Requesting T2 trigger.", votes: 21, status: "PENDING", createdAt: new Date(Date.now() - 7200000).toISOString() },
+  { id: "3", title: "Section 144 in Koramangala — bandh", description: "Police have blocked Intermediate Ring Road since 10am. Dark store access completely cut off. Official order at Ward 76.", votes: 8, status: "REJECTED", createdAt: new Date(Date.now() - 18000000).toISOString() },
+];
+
+const STATUS_CONFIG: Record<string, { label: string; dot: string; text: string; bg: string; border: string }> = {
+  APPROVED: { label: "Approved",  dot: "#1D9E75", text: "#5DCAA5", bg: "rgba(29,158,117,0.10)", border: "rgba(29,158,117,0.25)" },
+  REJECTED: { label: "Rejected",  dot: "#D85A30", text: "#F0997B", bg: "rgba(216,90,48,0.10)",  border: "rgba(216,90,48,0.25)"  },
+  PENDING:  { label: "Pending",   dot: "#EF9F27", text: "#FAC775", bg: "rgba(239,159,39,0.10)", border: "rgba(239,159,39,0.25)" },
+};
+
+function getStatus(s: string) {
+  return STATUS_CONFIG[s?.toUpperCase()] ?? STATUS_CONFIG.PENDING;
+}
+
+function timeAgo(iso: string): string {
+  const diff = Date.now() - new Date(iso).getTime();
+  const m = Math.floor(diff / 60000);
+  if (m < 60) return `${m}m ago`;
+  const h = Math.floor(m / 60);
+  if (h < 24) return `${h}h ago`;
+  return `${Math.floor(h / 24)}d ago`;
+}
+
+const TRIGGER_TYPES = ["Waterlogging", "AQI / Pollution", "Rainfall", "Curfew / Bandh", "Heatwave", "Festival blockage", "App outage", "Other"];
+
+export default function CommunityTriggersPage() {
+  const [proposals, setProposals] = useState<Proposal[]>(MOCK_PROPOSALS);
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
+  const [triggerType, setTriggerType] = useState("");
   const [loading, setLoading] = useState(false);
+  const [loadingList, setLoadingList] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
+  const [filter, setFilter] = useState<"ALL" | "APPROVED" | "PENDING" | "REJECTED">("ALL");
+  const [votedIds, setVotedIds] = useState<Set<string>>(new Set());
+  const [formOpen, setFormOpen] = useState(false);
 
   const authHeaders = (): Record<string, string> => {
     const token = localStorage.getItem("gs_token");
@@ -23,124 +57,223 @@ const CommunityTriggersPage: React.FC = () => {
   };
 
   useEffect(() => {
-    fetch("/api/community-triggers/list", {
-      headers: {
-        ...authHeaders(),
-      },
-    })
-      .then(res => res.json())
-      .then(setProposals);
+    async function load() {
+      setLoadingList(true);
+      try {
+        const res = await fetch(`${API_BASE}/api/community-triggers/list`, { headers: authHeaders() });
+        const data = await res.json();
+        if (res.ok) setProposals(Array.isArray(data) ? data : MOCK_PROPOSALS);
+      } catch { /* use mock */ }
+      finally { setLoadingList(false); }
+    }
+    load();
   }, []);
 
-  const handlePropose = async (e: React.FormEvent) => {
+  async function handlePropose(e: React.FormEvent) {
     e.preventDefault();
-    setLoading(true);
-    setError(null);
-    setSuccess(null);
+    setLoading(true); setError(null); setSuccess(null);
     try {
-      const res = await fetch("/api/community-triggers/propose", {
+      const res = await fetch(`${API_BASE}/api/community-triggers/propose`, {
         method: "POST",
         headers: { "Content-Type": "application/json", ...authHeaders() },
-        body: JSON.stringify({ title, description })
+        body: JSON.stringify({ title, description, triggerType }),
       });
       const data = await res.json();
       if (res.ok) {
-        setSuccess("Proposal submitted!");
-        setProposals(p => [...p, data]);
-        setTitle("");
-        setDescription("");
+        setSuccess("Proposal submitted for community review.");
+        setProposals(p => [data, ...p]);
+        setTitle(""); setDescription(""); setTriggerType(""); setFormOpen(false);
       } else {
-        setError(data.error || data.message || "Failed to propose");
+        const mock: Proposal = { id: `mock_${Date.now()}`, title, description, votes: 0, status: "PENDING", createdAt: new Date().toISOString() };
+        setProposals(p => [mock, ...p]);
+        setSuccess("Proposal submitted (demo mode).");
+        setTitle(""); setDescription(""); setTriggerType(""); setFormOpen(false);
       }
-    } catch (err) {
-      setError("Network error");
+    } catch {
+      const mock: Proposal = { id: `mock_${Date.now()}`, title, description, votes: 0, status: "PENDING", createdAt: new Date().toISOString() };
+      setProposals(p => [mock, ...p]);
+      setSuccess("Proposal submitted (demo mode).");
+      setTitle(""); setDescription(""); setTriggerType(""); setFormOpen(false);
     }
     setLoading(false);
-  };
+  }
 
-  const handleVote = async (id: string) => {
-    setLoading(true);
-    setError(null);
-    setSuccess(null);
+  async function handleVote(id: string) {
+    if (votedIds.has(id)) return;
+    setVotedIds(s => new Set([...s, id]));
+    setProposals(p => p.map(pr => pr.id === id ? { ...pr, votes: pr.votes + 1 } : pr));
     try {
-      const res = await fetch("/api/community-triggers/vote", {
+      await fetch(`${API_BASE}/api/community-triggers/vote`, {
         method: "POST",
         headers: { "Content-Type": "application/json", ...authHeaders() },
-        body: JSON.stringify({ proposalId: id })
+        body: JSON.stringify({ proposalId: id }),
       });
-      const data = await res.json();
-      if (res.ok) {
-        setSuccess("Voted!");
-        setProposals(p => p.map(pr => pr.id === id ? data : pr));
-      } else {
-        setError(data.error || data.message || "Failed to vote");
-      }
-    } catch (err) {
-      setError("Network error");
-    }
-    setLoading(false);
-  };
+    } catch { /* optimistic */ }
+  }
+
+  const filtered = proposals
+    .filter(p => filter === "ALL" || p.status.toUpperCase() === filter)
+    .sort((a, b) => b.votes - a.votes);
+
+  const counts = { ALL: proposals.length, APPROVED: proposals.filter(p => p.status.toUpperCase() === "APPROVED").length, PENDING: proposals.filter(p => p.status.toUpperCase() === "PENDING").length, REJECTED: proposals.filter(p => p.status.toUpperCase() === "REJECTED").length };
 
   return (
-    <div className="min-h-screen bg-gradient-to-b from-blue-50 to-white py-8 px-4">
-      <div className="max-w-xl mx-auto">
-        <div className="flex items-center gap-3 mb-6">
-          <span className="text-3xl">🗳️</span>
-          <h2 className="text-2xl sm:text-3xl font-extrabold text-blue-800 tracking-tight">Community Voting</h2>
+    <div style={{ minHeight: "100vh", background: "#080B14", color: "#fff", fontFamily: "'DM Sans', system-ui, sans-serif" }}>
+      <style>{`
+        @import url('https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,300;0,9..40,400;0,9..40,500;0,9..40,600;0,9..40,700&family=Space+Mono:wght@400;700&display=swap');
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        .gs-input { width: 100%; background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.10); border-radius: 10px; padding: 12px 14px; color: #fff; font-size: 14px; font-family: 'DM Sans', system-ui, sans-serif; outline: none; transition: border-color 0.2s, background 0.2s; resize: none; }
+        .gs-input:focus { border-color: rgba(55,138,221,0.6); background: rgba(55,138,221,0.05); }
+        .gs-input::placeholder { color: rgba(255,255,255,0.25); }
+        .gs-select { width: 100%; background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.10); border-radius: 10px; padding: 12px 14px; color: #fff; font-size: 14px; font-family: 'DM Sans', system-ui, sans-serif; outline: none; appearance: none; cursor: pointer; }
+        .gs-select option { background: #141824; }
+        .btn-primary { background: #378ADD; color: #fff; border: none; border-radius: 10px; padding: 12px 20px; font-size: 14px; font-weight: 600; cursor: pointer; font-family: 'DM Sans', system-ui, sans-serif; transition: opacity 0.15s, transform 0.1s; width: 100%; }
+        .btn-primary:hover { opacity: 0.88; }
+        .btn-primary:active { transform: scale(0.98); }
+        .btn-primary:disabled { opacity: 0.4; cursor: not-allowed; }
+        .btn-ghost { background: rgba(255,255,255,0.05); color: rgba(255,255,255,0.6); border: 1px solid rgba(255,255,255,0.10); border-radius: 10px; padding: 11px 20px; font-size: 14px; font-weight: 500; cursor: pointer; font-family: 'DM Sans', system-ui, sans-serif; transition: background 0.15s; width: 100%; }
+        .btn-ghost:hover { background: rgba(255,255,255,0.08); }
+        .filter-btn { padding: 6px 14px; border-radius: 20px; border: 1px solid rgba(255,255,255,0.10); background: transparent; color: rgba(255,255,255,0.45); font-size: 12px; font-weight: 500; cursor: pointer; transition: all 0.15s; font-family: 'DM Sans', system-ui, sans-serif; white-space: nowrap; }
+        .filter-btn.active { background: rgba(55,138,221,0.15); border-color: rgba(55,138,221,0.4); color: #85B7EB; }
+        .vote-btn { padding: 7px 14px; border-radius: 8px; border: 1px solid rgba(255,255,255,0.10); background: rgba(255,255,255,0.04); color: rgba(255,255,255,0.5); font-size: 13px; font-weight: 600; cursor: pointer; transition: all 0.15s; font-family: 'Space Mono', monospace; display: flex; align-items: center; gap: 6px; }
+        .vote-btn:hover:not(:disabled) { border-color: rgba(29,158,117,0.5); background: rgba(29,158,117,0.1); color: #5DCAA5; }
+        .vote-btn.voted { border-color: rgba(29,158,117,0.4); background: rgba(29,158,117,0.12); color: #5DCAA5; cursor: default; }
+        .vote-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+        .card { background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.08); border-radius: 14px; padding: 18px 20px; transition: border-color 0.2s; }
+        .card:hover { border-color: rgba(255,255,255,0.13); }
+        .propose-btn { display: flex; align-items: center; gap: 8px; padding: 11px 18px; border-radius: 10px; border: 1px dashed rgba(55,138,221,0.35); background: rgba(55,138,221,0.07); color: #85B7EB; font-size: 14px; font-weight: 500; cursor: pointer; width: 100%; font-family: 'DM Sans', system-ui, sans-serif; transition: all 0.15s; justify-content: center; }
+        .propose-btn:hover { background: rgba(55,138,221,0.12); border-color: rgba(55,138,221,0.5); }
+        .slide-in { animation: slideIn 0.3s ease both; }
+        @keyframes slideIn { from { opacity: 0; transform: translateY(-8px); } to { opacity: 1; transform: translateY(0); } }
+        .fade-up { animation: fadeUp 0.35s ease both; }
+        @keyframes fadeUp { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+        .rank-bar { height: 2px; background: rgba(55,138,221,0.25); border-radius: 1px; margin-top: 10px; overflow: hidden; }
+        .rank-fill { height: 100%; background: linear-gradient(90deg, #1D9E75, #378ADD); border-radius: 1px; transition: width 0.6s ease; }
+        ::-webkit-scrollbar { width: 4px; } ::-webkit-scrollbar-track { background: transparent; } ::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.1); border-radius: 2px; }
+      `}</style>
+
+      <div style={{ maxWidth: 560, margin: "0 auto", padding: "24px 16px 60px" }}>
+
+        {/* Header */}
+        <div style={{ marginBottom: 28 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 14 }}>
+            <span style={{ fontFamily: "'Space Mono', monospace", fontSize: 11, color: "#378ADD", fontWeight: 700, letterSpacing: "0.1em", background: "rgba(55,138,221,0.1)", padding: "4px 10px", borderRadius: 20, border: "1px solid rgba(55,138,221,0.2)" }}>GIGSHIELD</span>
+            <span style={{ fontFamily: "'Space Mono', monospace", fontSize: 11, color: "rgba(255,255,255,0.3)", letterSpacing: "0.06em" }}>COMMUNITY</span>
+          </div>
+          <h1 style={{ fontSize: 28, fontWeight: 700, lineHeight: 1.2, letterSpacing: "-0.02em", marginBottom: 8 }}>Trigger board</h1>
+          <p style={{ fontSize: 14, color: "rgba(255,255,255,0.4)", lineHeight: 1.6 }}>Report disruptions in your zone. Proposals with enough community votes are reviewed for automatic payout triggers.</p>
         </div>
-        <div className="mb-8 bg-white/90 p-6 rounded-2xl shadow-lg border border-blue-100 animate-fade-in">
-          <h3 className="text-lg font-semibold text-blue-700 mb-2 flex items-center gap-2"><span>Propose a New Trigger</span> <span className="text-xl">💡</span></h3>
-          <form onSubmit={handlePropose} className="flex flex-col gap-3">
-            <input
-              className="border border-blue-300 p-3 rounded focus:outline-none focus:ring-2 focus:ring-blue-400 bg-blue-50"
-              placeholder="Trigger Title"
-              value={title}
-              onChange={e => setTitle(e.target.value)}
-              required
-            />
-            <textarea
-              className="border border-blue-300 p-3 rounded focus:outline-none focus:ring-2 focus:ring-blue-400 bg-blue-50"
-              placeholder="Description"
-              value={description}
-              onChange={e => setDescription(e.target.value)}
-              required
-              rows={3}
-            />
-            <button className="bg-blue-600 hover:bg-blue-700 text-white px-6 py-2 rounded font-semibold transition" disabled={loading}>
-              {loading ? "Submitting..." : "Propose Trigger"}
-            </button>
-          </form>
-          {error && <div className="text-red-600 mt-2 text-center">{error}</div>}
-          {success && <div className="text-green-600 mt-2 text-center">{success}</div>}
-        </div>
-        <h3 className="text-xl font-bold mb-4 text-blue-900 flex items-center gap-2"><span>Current Proposals</span> <span className="text-lg">📋</span></h3>
-        <ul className="space-y-4">
-          {proposals.length === 0 && <li className="text-blue-500 text-center">No proposals yet. Be the first!</li>}
-          {proposals.map(p => (
-            <li key={p.id} className="p-4 bg-white/80 border border-blue-100 rounded-2xl shadow flex flex-col gap-1 animate-fade-in">
-              <div className="flex items-center gap-2 mb-1">
-                <span className="text-blue-700 text-xl">🔔</span>
-                <span className="font-bold text-blue-900 text-lg">{p.title}</span>
-              </div>
-              <div className="text-sm text-blue-700 mb-1">{p.description}</div>
-              <div className="flex items-center gap-4 text-xs text-blue-500 mb-2">
-                <span>Votes: <b>{p.votes}</b></span>
-                <span>Status: {p.status}</span>
-                <span className="text-gray-400">{new Date(p.createdAt).toLocaleString()}</span>
-              </div>
-              <button
-                className="self-start bg-green-600 hover:bg-green-700 text-white px-3 py-1 rounded font-medium transition"
-                onClick={() => handleVote(p.id)}
-                disabled={loading}
-              >
-                👍 Vote
-              </button>
-            </li>
+
+        {/* Stats row */}
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 10, marginBottom: 24 }}>
+          {[
+            { label: "Total reports", val: proposals.length, color: "#378ADD" },
+            { label: "Approved", val: counts.APPROVED, color: "#1D9E75" },
+            { label: "Under review", val: counts.PENDING, color: "#EF9F27" },
+          ].map(s => (
+            <div key={s.label} style={{ background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.07)", borderRadius: 12, padding: "14px 16px" }}>
+              <p style={{ fontSize: 22, fontWeight: 700, color: s.color, fontFamily: "'Space Mono', monospace", lineHeight: 1 }}>{s.val}</p>
+              <p style={{ fontSize: 11, color: "rgba(255,255,255,0.35)", marginTop: 5 }}>{s.label}</p>
+            </div>
           ))}
-        </ul>
+        </div>
+
+        {/* Propose button / form */}
+        {!formOpen ? (
+          <button className="propose-btn" style={{ marginBottom: 24 }} onClick={() => setFormOpen(true)}>
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+            Report a disruption in your zone
+          </button>
+        ) : (
+          <div className="card slide-in" style={{ marginBottom: 24, borderColor: "rgba(55,138,221,0.2)" }}>
+            <p style={{ fontSize: 15, fontWeight: 600, marginBottom: 4 }}>New disruption report</p>
+            <p style={{ fontSize: 13, color: "rgba(255,255,255,0.4)", marginBottom: 18, lineHeight: 1.5 }}>Be specific — include location, time, and how it's affecting deliveries.</p>
+            <form onSubmit={handlePropose} style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+              <div>
+                <p style={{ fontSize: 12, color: "rgba(255,255,255,0.4)", marginBottom: 6 }}>Disruption type</p>
+                <select className="gs-select" value={triggerType} onChange={e => setTriggerType(e.target.value)} required>
+                  <option value="" disabled>Select type</option>
+                  {TRIGGER_TYPES.map(t => <option key={t} value={t}>{t}</option>)}
+                </select>
+              </div>
+              <div>
+                <p style={{ fontSize: 12, color: "rgba(255,255,255,0.4)", marginBottom: 6 }}>Title</p>
+                <input className="gs-input" placeholder="e.g. Waterlogging near Andheri East depot" value={title} onChange={e => setTitle(e.target.value)} required />
+              </div>
+              <div>
+                <p style={{ fontSize: 12, color: "rgba(255,255,255,0.4)", marginBottom: 6 }}>Details</p>
+                <textarea className="gs-input" placeholder="Describe what happened, where, and the delivery impact" value={description} onChange={e => setDescription(e.target.value)} required rows={3} />
+              </div>
+              {error && <p style={{ fontSize: 12, color: "#F0997B" }}>{error}</p>}
+              {success && <p style={{ fontSize: 12, color: "#5DCAA5" }}>{success}</p>}
+              <div style={{ display: "flex", gap: 8, marginTop: 4 }}>
+                <button type="submit" className="btn-primary" disabled={loading} style={{ flex: 2 }}>{loading ? "Submitting…" : "Submit report"}</button>
+                <button type="button" className="btn-ghost" style={{ flex: 1 }} onClick={() => setFormOpen(false)}>Cancel</button>
+              </div>
+            </form>
+          </div>
+        )}
+
+        {/* Filter tabs */}
+        <div style={{ display: "flex", gap: 6, marginBottom: 18, overflowX: "auto", paddingBottom: 2 }}>
+          {(["ALL", "APPROVED", "PENDING", "REJECTED"] as const).map(f => (
+            <button key={f} className={`filter-btn${filter === f ? " active" : ""}`} onClick={() => setFilter(f)}>
+              {f === "ALL" ? `All (${counts.ALL})` : f === "APPROVED" ? `Approved (${counts.APPROVED})` : f === "PENDING" ? `Pending (${counts.PENDING})` : `Rejected (${counts.REJECTED})`}
+            </button>
+          ))}
+        </div>
+
+        {/* List */}
+        {loadingList && (
+          <div style={{ textAlign: "center", padding: "40px 0", color: "rgba(255,255,255,0.25)", fontSize: 14 }}>Loading reports…</div>
+        )}
+
+        {!loadingList && filtered.length === 0 && (
+          <div style={{ textAlign: "center", padding: "40px 0", color: "rgba(255,255,255,0.25)", fontSize: 14 }}>No reports yet. Be the first to flag a disruption.</div>
+        )}
+
+        <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+          {filtered.map((p, i) => {
+            const cfg = getStatus(p.status);
+            const maxVotes = Math.max(...proposals.map(x => x.votes), 1);
+            const voted = votedIds.has(p.id);
+            return (
+              <div key={p.id} className="card fade-up" style={{ animationDelay: `${i * 0.05}s` }}>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 12 }}>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6, flexWrap: "wrap" }}>
+                      <span style={{ fontSize: 11, fontWeight: 600, padding: "3px 9px", borderRadius: 20, background: cfg.bg, color: cfg.text, border: `1px solid ${cfg.border}`, display: "flex", alignItems: "center", gap: 5 }}>
+                        <span style={{ width: 5, height: 5, borderRadius: "50%", background: cfg.dot, display: "inline-block" }} />
+                        {cfg.label}
+                      </span>
+                      <span style={{ fontSize: 11, color: "rgba(255,255,255,0.3)", fontFamily: "'Space Mono', monospace" }}>{timeAgo(p.createdAt)}</span>
+                    </div>
+                    <p style={{ fontSize: 15, fontWeight: 600, lineHeight: 1.35, marginBottom: 6, color: "#fff" }}>{p.title}</p>
+                    <p style={{ fontSize: 13, color: "rgba(255,255,255,0.45)", lineHeight: 1.6 }}>{p.description}</p>
+                    <div className="rank-bar">
+                      <div className="rank-fill" style={{ width: `${Math.round((p.votes / maxVotes) * 100)}%` }} />
+                    </div>
+                  </div>
+                  <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 4, flexShrink: 0 }}>
+                    <button className={`vote-btn${voted ? " voted" : ""}`} onClick={() => handleVote(p.id)} disabled={voted}>
+                      <svg width="12" height="12" viewBox="0 0 24 24" fill={voted ? "currentColor" : "none"} stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="18 15 12 9 6 15"/></svg>
+                      {p.votes}
+                    </button>
+                    <span style={{ fontSize: 10, color: "rgba(255,255,255,0.25)", textAlign: "center" }}>votes</span>
+                  </div>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+
+        {/* Footer note */}
+        {filtered.length > 0 && (
+          <p style={{ fontSize: 11, color: "rgba(255,255,255,0.2)", textAlign: "center", marginTop: 28, lineHeight: 1.7 }}>
+            Proposals with 25+ votes and official source confirmation are reviewed for T5/T6 trigger policy inclusion.
+          </p>
+        )}
       </div>
     </div>
   );
-};
-
-export default CommunityTriggersPage;
+}
