@@ -5,26 +5,28 @@ import { authenticateWorker } from "../middlewares/authenticateWorker";
 const router = express.Router();
 
 // POST /api/community-triggers/propose
-router.post("/propose", authenticateWorker, (req, res) => {
+router.post("/propose", authenticateWorker, async (req, res) => {
   const workerId = req.user.id;
-  const { title, description } = req.body;
+  const { title, description, triggerType } = req.body;
   try {
-    const proposal = proposeTrigger(workerId, title, description);
+    const proposal = await proposeTrigger(workerId, title, description, triggerType);
     res.json(proposal);
   } catch (err) {
-    res.status(400).json({ error: err.message });
+    const message = err instanceof Error ? err.message : "Failed to submit proposal";
+    res.status(400).json({ error: message });
   }
 });
 
 // POST /api/community-triggers/vote
-router.post("/vote", authenticateWorker, (req, res) => {
+router.post("/vote", authenticateWorker, async (req, res) => {
   const workerId = req.user.id;
   const { proposalId } = req.body;
   try {
-    const proposal = voteTrigger(workerId, proposalId);
+    const proposal = await voteTrigger(workerId, proposalId);
     res.json(proposal);
   } catch (err) {
-    res.status(400).json({ error: err.message });
+    const message = err instanceof Error ? err.message : "Failed to vote";
+    res.status(400).json({ error: message });
   }
 });
 

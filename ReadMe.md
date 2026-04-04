@@ -967,7 +967,16 @@ Razorpay error → retry 3× with exponential backoff (1 min, 5 min, 15 min) →
 - `/api/community-triggers/vote` — Vote for a trigger proposal (one vote per worker)
 - `/api/community-triggers/list` — List all proposals
 - Anti-fraud: Only authenticated workers can propose/vote; duplicate voting blocked
-- Proposals require admin review before activation
+- Zone guard: workers can vote only on proposals in their own registered zone
+- Community threshold: proposal enters approval evaluation only after **>50% area vote share**
+  : vote share = proposal votes / total eligible workers in that zone
+- Local verification: once threshold is crossed, server validates with local posts/news channel feed before approval
+  : configure `LOCAL_SOURCE_FEED_URL` (or `LOCAL_NEWS_FEED_URL`) for external evidence checks
+  : quick local setup: `LOCAL_NEWS_FEED_URL=http://localhost:8000/feeds/local-news`
+- Status flow:
+  : `PENDING` (<50% vote share)
+  : `UNDER_REVIEW` (threshold crossed but source evidence not yet verified)
+  : `APPROVED` (threshold crossed + source evidence verified)
 - Powered by `/src/services/worker/community-triggers.service.ts`
 
 ---

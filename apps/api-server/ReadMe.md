@@ -21,7 +21,10 @@ This service powers the backend for GigCognito's parametric insurance platform. 
 - **API Route:** `/api/community-triggers`
 - Workers can propose and vote on new parametric triggers.
 - One vote per worker (anti-fraud logic enforced).
-- Proposals require admin review before activation.
+- News verification is run immediately at proposal submission.
+- Only news-verified proposals with >50% zone voter support move to `UNDER_REVIEW`.
+- News-verified proposals below the vote threshold remain tagged as `LESS_VOTES`.
+- Proposals without news evidence are rejected.
 - Authenticated access (worker only).
 
 ## Endpoints

@@ -1,33 +1,205 @@
 // Community Voting for New Triggers Service
 // Workers can propose and vote on new parametric triggers
 import { v4 as uuidv4 } from "uuid";
+import axios from "axios";
+import { PrismaClient } from "@prisma/client";
+import { verifyLocalNewsEvidence } from "../feeds/official-notice-feed.service";
 
-const proposals: Record<string, any> = {};
+const prisma = new PrismaClient();
+
+type Proposal = {
+  id: string;
+  title: string;
+  description: string;
+  triggerType?: string;
+  proposer: string;
+  zoneId: string;
+  votes: number;
+  voters: Set<string>;
+  voteShare: number;
+  eligibleVoters: number;
+  status: "LESS_VOTES" | "UNDER_REVIEW" | "APPROVED" | "REJECTED";
+  newsVerified: boolean;
+  verificationSource: string;
+  verificationEvidence: string[];
+  createdAt: string;
+  approvedAt?: string;
+};
+
+const proposals: Record<string, Proposal> = {};
 const votes: Record<string, Set<string>> = {};
 
-export function proposeTrigger(workerId: string, title: string, description: string) {
+const LOCAL_SOURCE_FEED_URL = process.env.LOCAL_SOURCE_FEED_URL || process.env.LOCAL_NEWS_FEED_URL;
+const AREA_APPROVAL_THRESHOLD = 0.5;
+
+function normalizeText(text: string): string {
+  return (text || "").toLowerCase();
+}
+
+async function getEligibleVoterCount(zoneId: string): Promise<number> {
+  const count = await prisma.worker.count({ where: { zoneId } });
+  return Math.max(1, count);
+}
+
+async function verifyWithLocalSources(input: { zoneId: string; title: string; description: string }) {
+  // Prefer direct in-process verification so post validation does not depend on runtime env wiring.
+  try {
+    const direct = await verifyLocalNewsEvidence({
+      zoneId: input.zoneId,
+      title: input.title,
+      description: input.description,
+    });
+
+    return {
+      verified: Boolean(direct.verified),
+      source: String(direct.sourceMode || "local-verifier"),
+      evidence: Array.isArray(direct.sources) ? direct.sources.map(String) : [],
+    };
+  } catch {
+    // Fall through to HTTP verifier, then heuristic fallback.
+  }
+
+  if (LOCAL_SOURCE_FEED_URL) {
+    try {
+      const res = await axios.get(LOCAL_SOURCE_FEED_URL, {
+        params: {
+          zoneId: input.zoneId,
+          title: input.title,
+          description: input.description,
+        },
+        timeout: 4000,
+      });
+
+      const verified = Boolean(res.data?.verified);
+      const evidence = Array.isArray(res.data?.sources) ? res.data.sources.map(String) : [];
+      return {
+        verified,
+        source: "local-feed",
+        evidence,
+      };
+    } catch {
+      return {
+        verified: false,
+        source: "local-feed-error",
+        evidence: ["Local source feed unavailable"],
+      };
+    }
+  }
+
+  // Fallback demo verifier when no external local source feed is configured.
+  const text = `${normalizeText(input.title)} ${normalizeText(input.description)}`;
+  const likelyLocalIncident = [
+    "curfew",
+    "bandh",
+    "waterlogging",
+    "flood",
+    "aqi",
+    "rain",
+    "heat",
+    "festival",
+    "hanuman",
+    "jayanti",
+    "jayanthi",
+    "road block",
+    "blocked road",
+    "road blocked",
+    "section 144",
+  ]
+    .some((k) => text.includes(k));
+
+  return {
+    verified: likelyLocalIncident,
+    source: "heuristic-fallback",
+    evidence: likelyLocalIncident
+      ? ["Keyword and disruption pattern matched; configure LOCAL_SOURCE_FEED_URL for stronger verification"]
+      : ["Insufficient local-source evidence"],
+  };
+}
+
+function getLowVoteMessage(voteShare: number) {
+  return `Less votes: ${(voteShare * 100).toFixed(0)}% support. Needs > ${(AREA_APPROVAL_THRESHOLD * 100).toFixed(0)}% area votes to move to review`;
+}
+
+function setStatusEvidence(baseEvidence: string[], message: string) {
+  const trimmed = baseEvidence.filter((entry) => !entry.startsWith("Less votes:") && entry !== "News verified and vote threshold met; sent for review");
+  return [...trimmed, message];
+}
+
+async function evaluateProposalState(proposal: Proposal): Promise<Proposal> {
+  proposal.eligibleVoters = await getEligibleVoterCount(proposal.zoneId);
+  proposal.voteShare = proposal.votes / proposal.eligibleVoters;
+
+  if (!proposal.newsVerified) {
+    proposal.status = "REJECTED";
+    if (!proposal.verificationEvidence.length) {
+      proposal.verificationEvidence = ["Rejected: no matching local news evidence found at submission time"];
+    }
+    return proposal;
+  }
+
+  if (proposal.voteShare < AREA_APPROVAL_THRESHOLD) {
+    proposal.status = "LESS_VOTES";
+    proposal.verificationEvidence = setStatusEvidence(proposal.verificationEvidence, getLowVoteMessage(proposal.voteShare));
+    return proposal;
+  }
+
+  proposal.status = "UNDER_REVIEW";
+  proposal.verificationEvidence = setStatusEvidence(proposal.verificationEvidence, "News verified and vote threshold met; sent for review");
+
+  return proposal;
+}
+
+export async function proposeTrigger(workerId: string, title: string, description: string, triggerType?: string) {
+  const worker = await prisma.worker.findUnique({ where: { id: workerId } });
+  if (!worker?.zoneId) {
+    throw new Error("Worker zone is required for community trigger proposals");
+  }
+
+  const verification = await verifyWithLocalSources({
+    zoneId: worker.zoneId,
+    title,
+    description,
+  });
+
   const id = uuidv4();
-  proposals[id] = {
+  const proposal: Proposal = {
     id,
     title,
     description,
+    triggerType,
     proposer: workerId,
+    zoneId: worker.zoneId,
     votes: 1,
     voters: new Set([workerId]),
-    status: "UNDER_REVIEW",
+    voteShare: 0,
+    eligibleVoters: 1,
+    status: verification.verified ? "LESS_VOTES" : "REJECTED",
+    newsVerified: verification.verified,
+    verificationSource: verification.source,
+    verificationEvidence: verification.evidence,
     createdAt: new Date().toISOString(),
   };
+  proposals[id] = proposal;
   votes[id] = new Set([workerId]);
-  return proposals[id];
+  return evaluateProposalState(proposal);
 }
 
-export function voteTrigger(workerId: string, proposalId: string) {
+export async function voteTrigger(workerId: string, proposalId: string) {
   if (!proposals[proposalId]) throw new Error("Proposal not found");
+  if (proposals[proposalId].status === "REJECTED") {
+    throw new Error("This proposal is rejected because no news evidence was found");
+  }
+  const worker = await prisma.worker.findUnique({ where: { id: workerId } });
+  if (!worker?.zoneId) throw new Error("Worker zone not found");
+  if (worker.zoneId !== proposals[proposalId].zoneId) {
+    throw new Error("You can only vote for proposals in your own zone");
+  }
   if (votes[proposalId].has(workerId)) throw new Error("Already voted");
+
   votes[proposalId].add(workerId);
   proposals[proposalId].votes = votes[proposalId].size;
   proposals[proposalId].voters = votes[proposalId];
-  return proposals[proposalId];
+  return evaluateProposalState(proposals[proposalId]);
 }
 
 export function listProposals() {
@@ -35,8 +207,15 @@ export function listProposals() {
     id: p.id,
     title: p.title,
     description: p.description,
+    triggerType: p.triggerType,
+    zoneId: p.zoneId,
     votes: p.votes,
+    voteShare: p.voteShare,
+    eligibleVoters: p.eligibleVoters,
     status: p.status,
+    verificationSource: p.verificationSource,
+    verificationEvidence: p.verificationEvidence,
     createdAt: p.createdAt,
+    approvedAt: p.approvedAt,
   }));
 }

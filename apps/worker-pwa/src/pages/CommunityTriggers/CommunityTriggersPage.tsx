@@ -11,20 +11,15 @@ interface Proposal {
 
 const API_BASE = import.meta.env.VITE_API_URL ?? "http://localhost:8000";
 
-const MOCK_PROPOSALS: Proposal[] = [
-  { id: "1", title: "Waterlogging near Andheri East depot", description: "Complete road block at SV Road junction. Standing water 2ft deep. Bikes can't pass. 40+ riders stranded since 7am.", votes: 34, status: "APPROVED", createdAt: new Date(Date.now() - 3600000).toISOString() },
-  { id: "2", title: "AQI 430 in Dwarka — unworkable conditions", description: "Visibility under 50m. Multiple riders reporting breathing issues. WAQI confirms 428, CPCB 431. Requesting T2 trigger.", votes: 21, status: "PENDING", createdAt: new Date(Date.now() - 7200000).toISOString() },
-  { id: "3", title: "Section 144 in Koramangala — bandh", description: "Police have blocked Intermediate Ring Road since 10am. Dark store access completely cut off. Official order at Ward 76.", votes: 8, status: "REJECTED", createdAt: new Date(Date.now() - 18000000).toISOString() },
-];
-
 const STATUS_CONFIG: Record<string, { label: string; dot: string; text: string; bg: string; border: string }> = {
-  APPROVED: { label: "Approved",  dot: "#1D9E75", text: "#5DCAA5", bg: "rgba(29,158,117,0.10)", border: "rgba(29,158,117,0.25)" },
+  APPROVED: { label: "Approved", dot: "#1D9E75", text: "#5DCAA5", bg: "rgba(29,158,117,0.10)", border: "rgba(29,158,117,0.25)" },
+  UNDER_REVIEW: { label: "Under review", dot: "#378ADD", text: "#85B7EB", bg: "rgba(55,138,221,0.10)", border: "rgba(55,138,221,0.30)" },
+  LESS_VOTES: { label: "Less votes", dot: "#EF9F27", text: "#FAC775", bg: "rgba(239,159,39,0.10)", border: "rgba(239,159,39,0.25)" },
   REJECTED: { label: "Rejected",  dot: "#D85A30", text: "#F0997B", bg: "rgba(216,90,48,0.10)",  border: "rgba(216,90,48,0.25)"  },
-  PENDING:  { label: "Pending",   dot: "#EF9F27", text: "#FAC775", bg: "rgba(239,159,39,0.10)", border: "rgba(239,159,39,0.25)" },
 };
 
 function getStatus(s: string) {
-  return STATUS_CONFIG[s?.toUpperCase()] ?? STATUS_CONFIG.PENDING;
+  return STATUS_CONFIG[s?.toUpperCase()] ?? STATUS_CONFIG.LESS_VOTES;
 }
 
 function timeAgo(iso: string): string {
@@ -39,7 +34,7 @@ function timeAgo(iso: string): string {
 const TRIGGER_TYPES = ["Waterlogging", "AQI / Pollution", "Rainfall", "Curfew / Bandh", "Heatwave", "Festival blockage", "App outage", "Other"];
 
 export default function CommunityTriggersPage() {
-  const [proposals, setProposals] = useState<Proposal[]>(MOCK_PROPOSALS);
+  const [proposals, setProposals] = useState<Proposal[]>([]);
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
   const [triggerType, setTriggerType] = useState("");
@@ -47,7 +42,7 @@ export default function CommunityTriggersPage() {
   const [loadingList, setLoadingList] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
-  const [filter, setFilter] = useState<"ALL" | "APPROVED" | "PENDING" | "REJECTED">("ALL");
+  const [filter, setFilter] = useState<"ALL" | "UNDER_REVIEW" | "LESS_VOTES" | "REJECTED">("ALL");
   const [votedIds, setVotedIds] = useState<Set<string>>(new Set());
   const [formOpen, setFormOpen] = useState(false);
 
@@ -62,8 +57,12 @@ export default function CommunityTriggersPage() {
       try {
         const res = await fetch(`${API_BASE}/api/community-triggers/list`, { headers: authHeaders() });
         const data = await res.json();
-        if (res.ok) setProposals(Array.isArray(data) ? data : MOCK_PROPOSALS);
-      } catch { /* use mock */ }
+        if (res.ok && Array.isArray(data)) {
+          setProposals(data);
+        }
+      } catch {
+        setError("Unable to load reports right now.");
+      }
       finally { setLoadingList(false); }
     }
     load();
@@ -80,42 +79,48 @@ export default function CommunityTriggersPage() {
       });
       const data = await res.json();
       if (res.ok) {
-        setSuccess("Proposal submitted for community review.");
+        setSuccess("Posted. News check completed instantly.");
         setProposals(p => [data, ...p]);
         setTitle(""); setDescription(""); setTriggerType(""); setFormOpen(false);
       } else {
-        const mock: Proposal = { id: `mock_${Date.now()}`, title, description, votes: 0, status: "PENDING", createdAt: new Date().toISOString() };
-        setProposals(p => [mock, ...p]);
-        setSuccess("Proposal submitted (demo mode).");
-        setTitle(""); setDescription(""); setTriggerType(""); setFormOpen(false);
+        setError(typeof data?.error === "string" ? data.error : "Unable to submit report.");
       }
     } catch {
-      const mock: Proposal = { id: `mock_${Date.now()}`, title, description, votes: 0, status: "PENDING", createdAt: new Date().toISOString() };
-      setProposals(p => [mock, ...p]);
-      setSuccess("Proposal submitted (demo mode).");
-      setTitle(""); setDescription(""); setTriggerType(""); setFormOpen(false);
+      setError("Unable to submit report.");
     }
     setLoading(false);
   }
 
   async function handleVote(id: string) {
     if (votedIds.has(id)) return;
-    setVotedIds(s => new Set([...s, id]));
-    setProposals(p => p.map(pr => pr.id === id ? { ...pr, votes: pr.votes + 1 } : pr));
     try {
-      await fetch(`${API_BASE}/api/community-triggers/vote`, {
+      const res = await fetch(`${API_BASE}/api/community-triggers/vote`, {
         method: "POST",
         headers: { "Content-Type": "application/json", ...authHeaders() },
         body: JSON.stringify({ proposalId: id }),
       });
-    } catch { /* optimistic */ }
+      const data = await res.json();
+      if (res.ok) {
+        setVotedIds(s => new Set([...s, id]));
+        setProposals(p => p.map(pr => (pr.id === id ? data : pr)));
+      } else {
+        setError(typeof data?.error === "string" ? data.error : "Unable to cast vote.");
+      }
+    } catch {
+      setError("Unable to cast vote.");
+    }
   }
 
   const filtered = proposals
     .filter(p => filter === "ALL" || p.status.toUpperCase() === filter)
     .sort((a, b) => b.votes - a.votes);
 
-  const counts = { ALL: proposals.length, APPROVED: proposals.filter(p => p.status.toUpperCase() === "APPROVED").length, PENDING: proposals.filter(p => p.status.toUpperCase() === "PENDING").length, REJECTED: proposals.filter(p => p.status.toUpperCase() === "REJECTED").length };
+  const counts = {
+    ALL: proposals.length,
+    UNDER_REVIEW: proposals.filter(p => p.status.toUpperCase() === "UNDER_REVIEW").length,
+    LESS_VOTES: proposals.filter(p => p.status.toUpperCase() === "LESS_VOTES").length,
+    REJECTED: proposals.filter(p => p.status.toUpperCase() === "REJECTED").length,
+  };
 
   return (
     <div style={{ minHeight: "100vh", background: "#080B14", color: "#fff", fontFamily: "'DM Sans', system-ui, sans-serif" }}>
@@ -157,7 +162,7 @@ export default function CommunityTriggersPage() {
         {/* Header */}
         <div style={{ marginBottom: 28 }}>
           <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 14 }}>
-            <span style={{ fontFamily: "'Space Mono', monospace", fontSize: 11, color: "#378ADD", fontWeight: 700, letterSpacing: "0.1em", background: "rgba(55,138,221,0.1)", padding: "4px 10px", borderRadius: 20, border: "1px solid rgba(55,138,221,0.2)" }}>GIGSHIELD</span>
+            <span style={{ fontFamily: "'Space Mono', monospace", fontSize: 11, color: "#378ADD", fontWeight: 700, letterSpacing: "0.1em", background: "rgba(55,138,221,0.1)", padding: "4px 10px", borderRadius: 20, border: "1px solid rgba(55,138,221,0.2)" }}>KARYAKAVACH</span>
             <span style={{ fontFamily: "'Space Mono', monospace", fontSize: 11, color: "rgba(255,255,255,0.3)", letterSpacing: "0.06em" }}>COMMUNITY</span>
           </div>
           <h1 style={{ fontSize: 28, fontWeight: 700, lineHeight: 1.2, letterSpacing: "-0.02em", marginBottom: 8 }}>Trigger board</h1>
@@ -168,8 +173,8 @@ export default function CommunityTriggersPage() {
         <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 10, marginBottom: 24 }}>
           {[
             { label: "Total reports", val: proposals.length, color: "#378ADD" },
-            { label: "Approved", val: counts.APPROVED, color: "#1D9E75" },
-            { label: "Under review", val: counts.PENDING, color: "#EF9F27" },
+            { label: "Under review", val: counts.UNDER_REVIEW, color: "#1D9E75" },
+            { label: "Less votes", val: counts.LESS_VOTES, color: "#EF9F27" },
           ].map(s => (
             <div key={s.label} style={{ background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.07)", borderRadius: 12, padding: "14px 16px" }}>
               <p style={{ fontSize: 22, fontWeight: 700, color: s.color, fontFamily: "'Space Mono', monospace", lineHeight: 1 }}>{s.val}</p>
@@ -216,9 +221,9 @@ export default function CommunityTriggersPage() {
 
         {/* Filter tabs */}
         <div style={{ display: "flex", gap: 6, marginBottom: 18, overflowX: "auto", paddingBottom: 2 }}>
-          {(["ALL", "APPROVED", "PENDING", "REJECTED"] as const).map(f => (
+          {(["ALL", "UNDER_REVIEW", "LESS_VOTES", "REJECTED"] as const).map(f => (
             <button key={f} className={`filter-btn${filter === f ? " active" : ""}`} onClick={() => setFilter(f)}>
-              {f === "ALL" ? `All (${counts.ALL})` : f === "APPROVED" ? `Approved (${counts.APPROVED})` : f === "PENDING" ? `Pending (${counts.PENDING})` : `Rejected (${counts.REJECTED})`}
+              {f === "ALL" ? `All (${counts.ALL})` : f === "UNDER_REVIEW" ? `Under review (${counts.UNDER_REVIEW})` : f === "LESS_VOTES" ? `Less votes (${counts.LESS_VOTES})` : `Rejected (${counts.REJECTED})`}
             </button>
           ))}
         </div>
@@ -270,7 +275,7 @@ export default function CommunityTriggersPage() {
         {/* Footer note */}
         {filtered.length > 0 && (
           <p style={{ fontSize: 11, color: "rgba(255,255,255,0.2)", textAlign: "center", marginTop: 28, lineHeight: 1.7 }}>
-            Proposals with 25+ votes and official source confirmation are reviewed for T5/T6 trigger policy inclusion.
+            Reports are news-verified at submission. Only reports with more than 50% zone votes move to review.
           </p>
         )}
       </div>
