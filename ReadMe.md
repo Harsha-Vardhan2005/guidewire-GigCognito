@@ -1062,9 +1062,17 @@ The admin panel (`/admin-dashboard`) is the operations nerve centre:
 
 ## 18. Community Voting for New Triggers (2026)
 
-**What:** Workers can report and vote on **hyperlocal disruptions** not covered by city-wide parametric triggers — a flooded street, an unmarked road closure, a sudden local protest. A community-verified proposal with enough zone support elevates to admin review and can seed a new trigger type.
+### The Problem It Solves
 
-**Why:** City-level data APIs miss hyperlocal reality. A dark store lane that floods every monsoon will never appear in an IMD district alert. Workers on the ground are the most accurate sensor for these events. Making the platform participatory closes that gap and builds genuine trust.
+Parametric triggers T1–T7 cover city-scale events (weather, AQI, curfew, festival). But **hyperlocal disruptions** — a flooded lane, a collapsed road, a blocked dark store access — are invisible to city-level APIs. A single worker can't prove them. But a cluster of workers in the same zone all independently raising the same disruption, at the same time, is strong signal.
+
+Community Voting is the mechanism that turns hyperlocal worker reports into legitimate, verifiable trigger proposals that move through a structured review pipeline.
+
+### Current Implementation ✅
+
+**What:** Workers can propose and vote on new parametric triggers (e.g., "Flooded Street", "Festival Blockage").
+
+**Why:** Makes the platform participatory and adaptive to real-world, hyperlocal risks. Ensures only genuine, community-backed triggers are considered.
 
 **How:**
 - `/api/community-triggers/propose` — Propose a new trigger (one per worker per event)
@@ -1083,42 +1091,30 @@ The admin panel (`/admin-dashboard`) is the operations nerve centre:
   : `UNDER_REVIEW` (news verified and vote share > 50%)
 - Powered by `/src/services/worker/community-triggers.service.ts`
 
-### Live Photo Evidence — AI Duplicate Detection
+### Planned Enhancement — Live Photo AI Duplicate Detection 🔬
 
-When a worker submits a hyperlocal disruption proposal, they are required to attach **a live camera photo taken at that moment** — no gallery uploads permitted. This single constraint eliminates the most common evidence-fraud vector (reusing old photos).
+> **Status: Designed, not yet implemented.** Community voting is live. The photo verification layer described below is a planned Phase 3 feature.
 
-**Verification pipeline:**
+For hyperlocal disruptions where no news feed can corroborate the claim (e.g., a single flooded lane, a blocked alley), text-based news verification breaks down. The planned solution:
 
-```
-Worker opens proposal form
-        ↓
-App opens device camera directly (no file picker shown)
-        ↓
-Worker captures photo in real-time (EXIF timestamp + GPS embedded)
-        ↓
-Photo sent to AI similarity check:
-  → Perceptual hash (pHash) computed for the new image
-  → Compared against hashes of all photos submitted in
-    the same zone in the past 72 hours
-  → Cosine similarity > 0.92 → DUPLICATE flagged → proposal rejected
-  → No match found → photo accepted as fresh evidence
-        ↓
-Proposal submitted with photo as supporting evidence
-```
+**How it works:**
 
-**Why duplicate detection works as a fraud signal:**
+1. **Live camera only** — the worker taps "Report Disruption" and must take a photo in-app using the device camera at that moment. Gallery uploads are blocked. The photo is timestamped and GPS-tagged at capture time.
 
-A genuine disruption produces many *visually distinct* photos — different workers, angles, distances, lighting. A coordinated fraud ring reusing a single photo (or slight crops/rotations of it) produces near-identical hashes that cluster together. The system does not need to verify *what* is in the photo — only that it is *new and unique*.
+2. **AI duplicate check** — before the proposal is accepted, the photo is run through a similarity model (perceptual hash + embedding comparison) against all photos submitted for the same zone in the same 4-hour window.
+   - If a **near-duplicate already exists** (same disruption already reported) → the worker is redirected to vote on the existing proposal instead of creating a new one. This prevents coordinated photo-copying fraud.
+   - If **no similar photo exists** → the photo is accepted as first evidence and the proposal is created.
 
-| Scenario | System Action |
-|---|---|
-| Fresh photo, no similar image in zone in past 72 hrs | ✅ Accepted as evidence |
-| Photo matches an existing submission (similarity > 0.92) | ❌ Rejected — duplicate photo detected |
-| Photo EXIF timestamp > 10 min old | ❌ Rejected — not a live capture |
-| GPS coordinates in EXIF outside worker's registered zone | ❌ Rejected — location mismatch |
-| Photo captured but GPS/EXIF stripped (some Android browsers) | ⚠️ Flagged for admin review, not auto-rejected |
+3. **Vote corroboration** — subsequent voters in the zone can optionally attach their own live photo. Each unique photo (verified non-duplicate) counts as an additional evidence signal, strengthening the proposal's confidence score.
 
-**Implementation note (Phase 3):** pHash comparison runs server-side in the Python ML service. No photo content is stored permanently — only the perceptual hash and metadata (zone, timestamp, proposal ID) are retained. Raw images are purged after 48 hours in line with DPDPA 2023 data minimisation requirements.
+| Step | Action | Guard |
+|---|---|---|
+| Capture | Live camera only (no gallery) | `capture="environment"` on input; backend rejects uploads without EXIF timestamp within ±90 sec of server time |
+| Dedup | Perceptual hash (pHash) + CLIP embedding cosine similarity | Threshold: pHash distance < 10 OR cosine similarity > 0.92 → flagged as duplicate |
+| Geo-bind | Photo GPS must match worker's registered zone | Mismatch → rejected before submission |
+| Time-bind | Photo timestamp must be within 90 seconds of submission | Prevents using old cached photos |
+
+**Why this matters for fraud prevention:** A coordinated ring could all vote "yes" on a fabricated disruption. But requiring each voter to independently produce a **live, geotagged, non-duplicate photo** from the same zone at the same time is operationally infeasible for a fraud ring — genuine stranded workers can do it trivially.
 
 ---
 
