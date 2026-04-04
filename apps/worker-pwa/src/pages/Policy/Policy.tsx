@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { useNavigate } from "react-router-dom";
 
 const STYLES = `
   @import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@300;400;500;600&family=Space+Mono:wght@400;700&display=swap');
@@ -42,6 +43,7 @@ export default function Policy() {
   const [recovering, setRecovering] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [policy, setPolicy] = useState<PolicyOverview | null>(null);
+  const navigate = useNavigate();
 
   useEffect(() => {
     async function loadPolicy() {
@@ -52,12 +54,24 @@ export default function Policy() {
       try {
         const token = localStorage.getItem("gs_token");
 
+        // If no token, redirect to onboarding
+        if (!token) {
+          setError("Not authenticated. Completing onboarding...");
+          setTimeout(() => navigate("/onboarding"), 1500);
+          return;
+        }
+
         const getPolicy = async (): Promise<PolicyOverview> => {
           const res = await fetch(`${API_BASE}/policy/me`, {
             headers: {
-              ...(token ? { Authorization: `Bearer ${token}` } : {}),
+              "Content-Type": "application/json",
+              Authorization: `Bearer ${token}`,
             },
           });
+
+          if (res.status === 401) {
+            throw new Error("Session expired. Please complete onboarding again.");
+          }
 
           if (!res.ok) {
             const body = await res.json().catch(() => ({}));
@@ -87,7 +101,11 @@ export default function Policy() {
 
         setPolicy(data);
       } catch (err) {
-        setError(err instanceof Error ? err.message : "Failed to load policy");
+        const msg = err instanceof Error ? err.message : "Failed to load policy";
+        setError(msg);
+        if (msg.includes("Session expired") || msg.includes("Not authenticated")) {
+          setTimeout(() => navigate("/onboarding"), 2000);
+        }
       } finally {
         setRecovering(false);
         setLoading(false);
@@ -95,7 +113,7 @@ export default function Policy() {
     }
 
     loadPolicy();
-  }, []);
+  }, [navigate]);
 
   if (loading) {
     return (

@@ -167,7 +167,9 @@ export default function Onboarding() {
     setSubmitting(true);
     try {
       const token = localStorage.getItem("gs_token");
-      await fetch(`${API_BASE}/worker/profile`, {
+
+      // Step 1: Update worker profile with zone + UPI
+      const profileRes = await fetch(`${API_BASE}/worker/profile`, {
         method: "PUT",
         headers: {
           "Content-Type": "application/json",
@@ -182,7 +184,13 @@ export default function Onboarding() {
         }),
       });
 
-      await fetch(`${API_BASE}/policy/create-or-renew`, {
+      if (!profileRes.ok) {
+        const err = await profileRes.json().catch(() => ({}));
+        throw new Error(err.message || `Profile update failed (${profileRes.status})`);
+      }
+
+      // Step 2: Create or renew policy
+      const policyRes = await fetch(`${API_BASE}/policy/create-or-renew`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -190,11 +198,20 @@ export default function Onboarding() {
         },
         body: JSON.stringify({ tier }),
       });
+
+      if (!policyRes.ok) {
+        const err = await policyRes.json().catch(() => ({}));
+        throw new Error(err.message || `Policy creation failed (${policyRes.status})`);
+      }
+
+      // Success - go to dashboard
+      navigate("/dashboard");
     } catch (err) {
-      console.error("[Onboarding] profile update failed", err);
+      const msg = err instanceof Error ? err.message : "Onboarding setup failed";
+      setErrors({ submit: msg });
+      console.error("[Onboarding]", msg);
     } finally {
       setSubmitting(false);
-      navigate("/dashboard");
     }
   }
 
@@ -397,6 +414,7 @@ export default function Onboarding() {
             <p className="label">UPI ID</p>
             <input className="gs-input" placeholder="yourname@phonepe" value={upiId} onChange={e => setUpiId(e.target.value)} />
             {errors.upiId && <p className="err">{errors.upiId}</p>}
+            {errors.submit && <p className="err">{errors.submit}</p>}
             <div style={{ marginTop: 16, padding: "14px", background: "rgba(255,255,255,0.03)", borderRadius: 10, border: "1px solid rgba(255,255,255,0.08)" }}>
               <p style={{ fontSize: 13, color: "rgba(255,255,255,0.6)", margin: "0 0 10px", fontWeight: 500 }}>Summary</p>
               {[

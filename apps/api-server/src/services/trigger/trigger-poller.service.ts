@@ -31,27 +31,33 @@ type ActivePolicyRecord = {
 };
 
 async function getActivePoliciesByZone(zoneId: string): Promise<ActivePolicyRecord[]> {
-  return prisma.policy.findMany({
-    where: {
-      zoneId,
-      status: "ACTIVE",
-      expiresAt: { gt: new Date() },
-    },
-    include: {
-      worker: {
-        include: {
-          claims: {
-            where: {
-              createdAt: {
-                gte: new Date(Date.now() - 7 * 24 * 60 * 60 * 1000),
+  try {
+    return prisma.policy.findMany({
+      where: {
+        zoneId,
+        status: "ACTIVE",
+        expiresAt: { gt: new Date() },
+      },
+      include: {
+        worker: {
+          include: {
+            claims: {
+              where: {
+                createdAt: {
+                  gte: new Date(Date.now() - 7 * 24 * 60 * 60 * 1000),
+                },
               },
+              select: { id: true },
             },
-            select: { id: true },
           },
         },
       },
-    },
-  }) as unknown as ActivePolicyRecord[];
+    }) as unknown as ActivePolicyRecord[];
+  } catch (dbErr) {
+    console.warn("[getActivePoliciesByZone] Database error for zone", zoneId, "returning empty fallback:", dbErr);
+    // Return empty array - poller will skip this zone
+    return [];
+  }
 }
 
 export function startTriggerPoller() {

@@ -77,8 +77,6 @@ importers:
         specifier: ^5.6.3
         version: 5.9.3
 
-  apps/ml-service: {}
-
   apps/worker-pwa:
     dependencies:
       axios:
