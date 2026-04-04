@@ -11,9 +11,9 @@ const CITIES = [
 ];
 
 const TIERS = [
-  { id: "basic",    label: "Basic",    base: 20, payout: "₹200/day", color: "#1D9E75" },
-  { id: "standard", label: "Standard", base: 35, payout: "₹304/day", color: "#378ADD" },
-  { id: "premium",  label: "Premium",  base: 50, payout: "₹416/day", color: "#7F77DD" },
+  { id: "basic",    label: "Basic",    base: 49,  payout: "₹280/day", color: "#1D9E75" },
+  { id: "standard", label: "Standard", base: 89,  payout: "₹416/day", color: "#378ADD" },
+  { id: "premium",  label: "Premium",  base: 149, payout: "₹560/day", color: "#7F77DD" },
 ];
 
 const SEASONS: Record<string, string> = {
@@ -73,7 +73,7 @@ export default function Onboarding() {
       const data = await res.json();
       setQuote(data);
     } catch {
-      setQuote({ basePremium: 35, seasonalAdj: 0, zoneAdj: 0, tenureDiscount: 0, noClaimDiscount: 0, finalPremium: 35, breakdown: "Offline estimate" });
+      setQuote({ basePremium: 35, seasonalAdj: 0, zoneAdj: 0, tenureDiscount: 0, noClaimDiscount: 0, finalPremium: 89, breakdown: "Offline estimate" });
     } finally {
       setLoadingQuote(false);
     }
@@ -170,7 +170,7 @@ export default function Onboarding() {
 
   const progress = done ? 100 : Math.round((step / 6) * 100);
 
-  if (done) return <SuccessScreen workerName="Rajan" zone={zones.find(z => z.id === zone)?.label ?? zone} premium={quote?.finalPremium ?? 35} tier={tier} />;
+  if (done) return <SuccessScreen workerName="Rajan" zone={zones.find(z => z.id === zone)?.label ?? zone} premium={quote?.finalPremium ?? 89} tier={tier} />;
 
   return (
     <div style={{ minHeight: "100vh", background: "#0A0E1A", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "flex-start", fontFamily: "'DM Sans', system-ui, sans-serif", padding: "0 0 40px" }}>
