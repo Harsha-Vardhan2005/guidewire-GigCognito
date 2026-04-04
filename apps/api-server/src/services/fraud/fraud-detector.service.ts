@@ -5,8 +5,8 @@
 
 import axios from "axios";
 
-const OWM_KEY  = process.env.OWM_API_KEY  || "74c675a99a5e7be42a45eab49bf7ef44";
-const WAQI_TOKEN = process.env.WAQI_TOKEN || "ce1fbf91c506102248a109457b93c982a9086218";
+const OWM_KEY  = process.env.OWM_API_KEY  || "MOCK";
+const WAQI_TOKEN = process.env.WAQI_TOKEN || "MOCK";
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
