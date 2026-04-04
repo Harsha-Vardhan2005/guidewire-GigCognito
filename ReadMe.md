@@ -1114,7 +1114,7 @@ For hyperlocal disruptions where no news feed can corroborate the claim (e.g., a
 | Geo-bind | Photo GPS must match worker's registered zone | Mismatch → rejected before submission |
 | Time-bind | Photo timestamp must be within 90 seconds of submission | Prevents using old cached photos |
 
-**Why this matters for fraud prevention:** A coordinated ring could all vote "yes" on a fabricated disruption. But requiring each voter to independently produce a **live, geotagged, non-duplicate photo** from the same zone at the same time is operationally infeasible for a fraud ring — genuine stranded workers can do it trivially.
+**Why this matters for fraud prevention:** A coordinated ring could all vote "yes" on a fabricated disruption. But requiring each voter to independently produce a **live, geotagged, non-duplicate photo** from the same zone at the same time is operationally infeasible for a fraud ring — genuine stranded workers can do it trivially. This is highly feasible as the Gig worker would not be able to proceed with his orders if he is stuck in some distruption, so by capturing a live photo he can prove it is real.
 
 ---
 
