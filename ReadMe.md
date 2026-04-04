@@ -1084,17 +1084,6 @@ The admin panel (`/admin-dashboard`) is the operations nerve centre:
 
 ---
 
-### Worker Dashboard
-- **At a glance:** Policy status (ACTIVE/EXPIRED), zone risk level (colour-coded), earnings protected this week, live disruption alerts in zone
-- **Sections:** Payout history, policy details, zone map, next week's premium forecast
-
-### Admin / Insurer Dashboard
-- **Real-time:** Active policies, weekly premium pool, live trigger events firing by city, claims auto-approved vs. flagged, current loss ratio
-- **Analytics:** City-wise disruption heatmap, 12-week loss ratio trend, fraud queue, top-5 claim zones
-- **Predictive:** "Next week: 72% probability of T1 trigger in BLR_KOR_01 — monsoon forecast"
-
----
-
 ## 17. Non-Functional Requirements
 
 ### Security
