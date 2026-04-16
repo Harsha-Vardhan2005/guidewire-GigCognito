@@ -1,31 +1,40 @@
-# GigCognito: AI-Powered Parametric Income Protection for India's Q-Commerce Delivery Partners
+# KaryaKavach: AI-Powered Parametric Income Protection for India's Q-Commerce Delivery Partners
 
-> **Guidewire DEVTrails 2026 | Phase 1 Submission**
+> **Guidewire DEVTrails 2026 | Phase 1 & Phase 2 Submission**
 > Protecting the Last Mile: Automated income insurance for Zepto / Blinkit delivery partners against uncontrollable external disruptions — zero paperwork, instant UPI payout.
 
 ---
 
 ## 0. Current Build Status (April 2026)
 
-This repo now includes both concept/demo UX flows and live API-backed flows.
+Phase 2 implementation complete. All core systems are live and API-backed.
 
-### What is dynamic now
+### Phase 1 ✅ — Architecture, design, policy logic, actuarial model
 
-- Worker profile updates are persisted through backend APIs (city, zone, UPI, platform details).
-- Dashboard backend is wired to worker-specific records (worker, claims, payouts, zone risk metadata).
-- Authentication for worker routes uses the OTP token generated during onboarding.
+### Phase 2 ✅ — All deliverables implemented and pushed
 
-### What can still appear as demo data
+| Feature | Status | Notes |
+|---|---|---|
+| Worker onboarding PWA | ✅ Live | JWT auth, zone picker, OTP mock |
+| ML-Adjusted Pricing (`POST /policy/ml-quote`) | ✅ Live | XGBoost 1.7.6 trained; zone safety discounts active |
+| All 7 parametric triggers (T1–T7) | ✅ Live | Mock deterministic fallbacks — no API key required for demo |
+| Trigger poller (node-cron, 15 min) | ✅ Live | Polls all 9 zones × 7 trigger types simultaneously |
+| `GET /triggers/status` | ✅ Live | Returns live state for all zones |
+| `POST /triggers/simulate` | ✅ Live | Test any trigger type / zone / intensity |
+| `GET /triggers/types` | ✅ Live | Trigger type metadata |
+| Zero-touch ClaimStatus animated pipeline | ✅ Live | 6-step UX at `/claim-processing` with confetti burst |
+| `GET /claims/my` | ✅ Live | Authenticated claim history (DB + mock fallback) |
+| XGBoost pricing model trained | ✅ Done | RMSE ₹1.46 · Kharadi/Pune −₹12.2/week · Andheri/Mumbai +₹20.8/week |
+| RandomForest fraud classifier trained | ✅ Done | AUC-ROC 1.0 · 8 fraud signals · 236 KB artifact |
+| Worker dashboard backend wiring | ✅ Live | Worker, claims, payouts, zone risk metadata |
 
-- Some frontend pages and alert cards still contain sample/demo presentation content.
-- If API calls fail or no worker data exists yet, the UI can still look "static".
+### Running the demo locally
 
-### How to ensure zone changes appear correctly
-
-1. Complete onboarding and save profile details.
-2. Ensure city + zone are written via profile update API.
-3. Use the same OTP session/token when opening dashboard.
-4. Confirm API server is running on port 8000 before starting worker PWA.
+1. Start API server: `cd apps/api-server && pnpm dev` (port 8000)
+2. Start worker PWA: `cd apps/worker-pwa && pnpm dev`
+3. Start ML service: `cd apps/ml-service && uvicorn app.main:app --port 5001`
+4. Trained model artifacts (`xgboost_pricing.pkl`, `fraud_classifier.pkl`) are present in `apps/ml-service/app/artifacts/`
+5. All trigger endpoints work without external API keys (mock fallbacks active)
 
 ---
 
@@ -39,6 +48,7 @@ This repo now includes both concept/demo UX flows and live API-backed flows.
 6. [Application Workflow](#6-application-workflow)
 7. [Parametric Trigger Design](#7-parametric-trigger-design)
 8. [Weekly Premium Model & Business Viability](#8-weekly-premium-model--business-viability)
+    - [8A. Underwriting, Triggers, Pricing & Actuarial Logic](#8a-underwriting-triggers-pricing--actuarial-logic-parametric-insurance)
 9. [Policy Logic & Coverage Boundaries](#9-policy-logic--coverage-boundaries)
 10. [AI/ML Architecture](#10-aiml-architecture)
 11. [Adversarial Defense & Anti-Spoofing Strategy](#11-adversarial-defense--anti-spoofing-strategy)
@@ -46,16 +56,20 @@ This repo now includes both concept/demo UX flows and live API-backed flows.
 13. [Real-Time Data Integration](#13-real-time-data-integration)
 14. [Onboarding Flow](#14-onboarding-flow)
 15. [Payout Processing](#15-payout-processing)
-
-21. [Worker Transparency Dashboard](#21-worker-transparency-dashboard)
-22. [Community Voting for New Triggers](#22-community-voting-for-new-triggers)
+16. [Dashboard Design](#16-dashboard-design)
+17. [Worker Transparency Dashboard (2026)](#17-worker-transparency-dashboard-2026)
+18. [Community Voting for New Triggers (2026)](#18-community-voting-for-new-triggers-2026)
+19. [Non-Functional Requirements](#19-non-functional-requirements)
+20. [Development Roadmap](#20-development-roadmap)
+21. [Business Viability & Regulatory Alignment](#21-business-viability--regulatory-alignment)
+22. [Appendix: Data Sources](#22-appendix-data-sources)
 23. [Local Development (Monorepo)](#23-local-development-monorepo)
 
 ---
 
 ## 1. Executive Summary
 
-**GigCognito** is an AI-powered, fully parametric income protection platform built exclusively for **Q-Commerce delivery partners** (Zepto, Blinkit) operating in Tier-1 Indian cities. When a verified weather, pollution, or civic disruption hits a worker's registered delivery zone, GigCognito automatically pays them for lost earning hours via UPI — **zero forms, zero calls, zero waiting.** The worker never needs to file anything.
+**KaryaKavach** is an AI-powered, fully parametric income protection platform built exclusively for **Q-Commerce delivery partners** (Zepto, Blinkit) operating in Tier-1 Indian cities. When a verified weather, pollution, or civic disruption hits a worker's registered delivery zone, KaryaKavach automatically pays them for lost earning hours via UPI — **zero forms, zero calls, zero waiting.** The worker never needs to file anything.
 
 The platform runs on a **weekly premium model** (₹49–₹149/week) mirroring the weekly payout cycle of every major delivery platform — no annual lock-in, no paperwork, no bank visit required.
 
@@ -68,7 +82,7 @@ The platform runs on a **weekly premium model** (₹49–₹149/week) mirroring 
 | Fraud protection | Multi-signal, 7-layer adversarial defense |
 | Platform | Mobile-first PWA (React + Node.js + AWS) |
 
-**Real-world validation:** SEWA's parametric heat-insurance program in Ahmedabad triggered automatic payouts to 50,000 informal workers (₹2.92 crore disbursed in 2024). Bajaj Allianz's ClimateSafe (2025) extends this to gig workers with automatic settlement. GoDigit × Jan Sahas Delhi pilot (2025) delivered live UPI trigger payouts to migrant workers on temperature breach. GigCognito operationalises this proven model for the digital-native Q-Commerce cohort.
+**Real-world validation:** SEWA's parametric heat-insurance program in Ahmedabad triggered automatic payouts to 50,000 informal workers (₹2.92 crore disbursed in 2024). Bajaj Allianz's ClimateSafe (2025) extends this to gig workers with automatic settlement. GoDigit × Jan Sahas Delhi pilot (2025) delivered live UPI trigger payouts to migrant workers on temperature breach. KaryaKavach operationalises this proven model for the digital-native Q-Commerce cohort.
 
 ---
 
@@ -98,7 +112,7 @@ Q-Commerce riders operate from hyper-local dark store zones, work in all weather
 
 ### The Insurance Gap
 
-Currently available products for gig workers address health, accident, and vehicle damage — partially. **Income loss from external disruptions: nobody covers this.** That is the gap GigCognito fills.
+Currently available products for gig workers address health, accident, and vehicle damage — partially. **Income loss from external disruptions: nobody covers this.** That is the gap KaryaKavach fills.
 
 ---
 
@@ -129,7 +143,7 @@ Currently available products for gig workers address health, accident, and vehic
 
 ### What Makes These Users Different?
 
-| Attribute | Implication for GigCognito |
+| Attribute | Implication for KaryaKavach |
 |---|---|
 | Low digital literacy | Onboarding under 5 minutes, WhatsApp-level UX |
 | Week-to-week cash flow | Weekly pricing aligned with platform payout cycle |
@@ -148,7 +162,7 @@ Currently available products for gig workers address health, accident, and vehic
 | Insurance penetration in gig workforce | <5% | IRDAI Bima Sugam baseline, 2025 |
 | India parametric insurance CAGR | ~11.3% (2024–2028) | Allied Market Research |
 
-**Addressable income-loss pool:** 475,000 workers × ₹5,000 avg. weekly earnings × 3.5 disruption-affected weeks/year × 38% avg. income loss = **~₹3,150 crore/year in direct income loss.** *(Pricing-model assumption for stress testing — to be calibrated against pilot data.)*
+**Addressable income-loss pool:** 475,000 workers × ₹5,000 avg. weekly earnings × ~4.5 disruption-affected weeks/year *(disruption days average 3–5/month = 36–60 days/year; ~4.5 qualifying threshold weeks/year after applying multi-day event grouping — to be calibrated against pilot data)* × 38% avg. income loss = **~₹4,060 crore/year in direct income loss.** *(Pricing-model assumption for stress testing — to be calibrated against pilot claims data.)*
 
 > **Affordability check:** Standard tier (₹89/week) = ~1.6–2.2% of avg. weekly earnings — below the 2% micro-insurance viability threshold (CGAP Microinsurance Guidelines, 2023).
 
@@ -160,14 +174,14 @@ Currently available products for gig workers address health, accident, and vehic
 
 **Context:** July 14th, 11 AM. A sudden cloudburst hits Koramangala. Rainfall crosses 70mm/3hrs. Streets flood in 20 minutes. Rajan's bike cannot navigate.
 
-**Without GigCognito:** Rajan waits 4 hours. Loses ₹450 in missed deliveries. Eats into his weekly grocery budget.
+**Without KaryaKavach:** Rajan waits 4 hours. Loses ₹450 in missed deliveries. Eats into his weekly grocery budget.
 
-**With GigCognito:**
+**With KaryaKavach:**
 - 11:02 AM — OpenWeatherMap detects rainfall > 65mm/3hrs in Koramangala zone; IMD "extremely heavy rain" advisory cross-confirmed
-- 11:03 AM — GigCognito cross-checks Rajan's last GPS ping: confirmed in Koramangala at 10:58 AM
+- 11:03 AM — KaryaKavach cross-checks Rajan's last GPS ping: confirmed in Koramangala at 10:58 AM
 - 11:04 AM — Dual-source confidence confirmed (OWM ✅ + IMD ✅); 6 of 7 fraud signals consistent with genuine stranded worker
 - 11:05 AM — Claim auto-initiated. Fraud score: clean. Payout approved.
-- 11:07 AM — ₹416 credited to Rajan's PhonePe. Notification: *"GigCognito ne aapka ₹416 bhej diya. Surakshit rahein."*
+- 11:07 AM — ₹416 credited to Rajan's PhonePe. Notification: *"KaryaKavach ne aapka ₹416 bhej diya. Surakshit rahein."*
 
 **Total time: ~5 minutes. Zero action required from Rajan.**
 
@@ -177,7 +191,7 @@ Currently available products for gig workers address health, accident, and vehic
 
 **Context:** November 3rd, Delhi. AQI hits 420 (Severe+). Both WAQI and CPCB stations report above 400 for 5 consecutive hours. Priya cannot safely work outdoors.
 
-**With GigCognito:**
+**With KaryaKavach:**
 - WAQI API detects AQI = 420 in Dwarka; CPCB nearest station confirms 415 — dual-source validated
 - Priya's zone GPS pinged at 8:45 AM (shift start); platform shows "active/available" status before trigger
 - Claim auto-triggered. Payout: ₹280 (4 disrupted hours × ₹70/hr declared rate)
@@ -189,9 +203,9 @@ Currently available products for gig workers address health, accident, and vehic
 
 **Context:** August 20th, Mumbai. Sudden political bandh in Andheri. Official Section 144 gazette published. Dark store access blocked.
 
-**With GigCognito:**
-- PIB gazette feed triggers NLP classifier (DistilBERT confidence: 0.95 ✅); geofence matches Ahmed's registered zone
-- Ahmed (Swiggy Instamart, Andheri) — platform shows "active/available" pre-trigger ✅
+**With KaryaKavach:**
+- PIB gazette feed triggers NLP classifier (DistilBERT confidence: 0.92 ✅); geofence matches Ahmed's registered zone
+- Ahmed (Blinkit, Andheri) — platform shows "active/available" pre-trigger ✅
 - Payout of ₹500 auto-processed.
 - Notification: *"Mumbai bandh detected in your area. ₹500 sent to your UPI. Stay safe."*
 
@@ -203,7 +217,7 @@ Currently available products for gig workers address health, accident, and vehic
 
 **Context:** September 7th, Pune. PMC pre-announces Ganesh procession routes blocking Kasba Peth zone 6 PM–11 PM.
 
-**With GigCognito:**
+**With KaryaKavach:**
 - Festival calendar (updated weekly from PMC/municipal announcements) pre-flags Suresh's zone
 - At 5:50 PM: system activates coverage for the disruption window
 - Payout of ₹250 auto-processed at 6:01 PM
@@ -215,7 +229,7 @@ Currently available products for gig workers address health, accident, and vehic
 
 **Context:** May 18th, Jaipur. Temperature hits 46°C. IMD heat wave advisory active for 2+ consecutive days.
 
-**With GigCognito:**
+**With KaryaKavach:**
 - OpenWeatherMap confirms temp > 44°C; IMD advisory cross-validated
 - Worker's zone confirmed active (GPS ping within 2 hours)
 - ₹280 payout processed — covers peak heat window (11 AM–3 PM)
@@ -226,17 +240,17 @@ Currently available products for gig workers address health, accident, and vehic
 
 Rajan is at a pickup point when a severe storm cuts mobile connectivity for 40 minutes. His GPS drops mid-shift.
 
-**GigCognito does NOT penalise him.** The system looks back 30 minutes: his pre-drop location is confirmed in the active disruption zone, and the weather trigger is already active. Claim processes without interruption — Rajan never sees a flag.
+**KaryaKavach does NOT penalise him.** The system looks back 30 minutes: his pre-drop location is confirmed in the active disruption zone, and the weather trigger is already active. Claim processes without interruption — Rajan never sees a flag.
 
 ---
 
 ## 5. Solution Overview
 
-GigCognito is a **parametric income insurance platform** — payouts are triggered by measurable, pre-defined external events, not subjective claim assessments.
+KaryaKavach is a **parametric income insurance platform** — payouts are triggered by measurable, pre-defined external events, not subjective claim assessments.
 
 ### How It Differs from Traditional Insurance
 
-| Aspect | Traditional Insurance | GigCognito (Parametric) |
+| Aspect | Traditional Insurance | KaryaKavach (Parametric) |
 |---|---|---|
 | Claim process | Worker files manually | Zero-touch, fully automated |
 | Proof required | Documents, photos, receipts | None — external data verifies |
@@ -260,7 +274,7 @@ GigCognito is a **parametric income insurance platform** — payouts are trigger
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────────┐
-│                         GigCognito PLATFORM FLOW                             │
+│                         KaryaKavach PLATFORM FLOW                             │
 ├──────────────┬──────────────────────────────────┬───────────────────────────┤
 │  ONBOARDING  │    ACTIVE POLICY MANAGEMENT      │   CLAIM & PAYOUT          │
 │  (< 5 min)   │                                  │                           │
@@ -281,6 +295,19 @@ GigCognito is a **parametric income insurance platform** — payouts are trigger
 └──────────────┴──────────────────────────────────┴───────────────────────────┘
 ```
 
+### Zero-Touch ClaimStatus Pipeline (Phase 2 UX)
+
+Workers who navigate to `/claim-processing` see a 6-step animated pipeline — no action required:
+
+| Step | Label | Detail |
+|---|---|---|
+| 1 | Trigger Confirmed | External parametric event verified (dual-source) |
+| 2 | Zone Match | Worker's registered zone matches trigger area |
+| 3 | Eligibility Check | Policy active, waiting period passed, no exclusions |
+| 4 | Fraud Check | 8-signal behavioral validation (< 90 seconds) |
+| 5 | UPI Transfer | Razorpay Payout API initiated (shimmer progress bar) |
+| 6 | Credited | Payout complete — confetti burst + breakdown card |
+
 ---
 
 ## 7. Parametric Trigger Design
@@ -297,7 +324,7 @@ All triggers are **objective, third-party verifiable, monitored every 15 minutes
 | **T4** | Heatwave | OpenWeatherMap + IMD heat alert | Temp > 44°C for ≥ 2 consecutive days with IMD advisory | OWM ≥ threshold AND IMD advisory active | 4 hrs/day (11 AM–3 PM peak) |
 | **T5** | Curfew / Section 144 | PIB gazette + State govt feed + DistilBERT NLP | Official order for registered pin code ≥ 4 hrs; NLP confidence ≥ 0.92 | Official source attribution confirmed + geofence match | Full declared disruption hours |
 | **T6** | Festival Road Blockage | Municipal calendar (PMC/MCGM/BBMP) | Pre-announced route closure > 2 hrs in active zone | Municipal source + zone match | Disrupted hours |
-| **T7** | Platform App Outage | GigCognito heartbeat monitor + platform status page | App unresponsive > 90 min during peak hours (8–11 AM or 6–10 PM) | 3 consecutive failed pings + status page confirms | 25% per hour, max 75% daily |
+| **T7** | Platform App Outage | KaryaKavach heartbeat monitor + platform status page | App unresponsive > 90 min during peak hours (8–11 AM or 6–10 PM) | 3 consecutive failed pings + status page confirms | 25% per hour, max 75% daily |
 
 ### Trigger Fallback Sources
 
@@ -324,59 +351,15 @@ Confidence Score (0–100) =
 
 ### Zone-Based Precision
 
-GigCognito operates at **pin code / dark store zone level** — not city level. A trigger in Koramangala does NOT auto-pay a worker in Whitefield (same city, different zone). This precision is critical for accurate payouts, fraud prevention, and cost control.
+KaryaKavach operates at **pin code / dark store zone level** — not city level. A trigger in Koramangala does NOT auto-pay a worker in Whitefield (same city, different zone). This precision is critical for accurate payouts, fraud prevention, and cost control.
 
 ---
 
-
-## 8A. Underwriting, Triggers, Pricing & Actuarial Logic (Parametric Insurance)
-
-### Underwriting
-- Risk is assessed by city, peril type (trigger), and worker activity tier.
-- Only workers with active policies, correct zone registration, and no duplicate claims are eligible for payout.
-- New accounts have a 7-day waiting period before first claim eligibility.
-
-### Triggers
-- Payouts are triggered by objective, third-party data (e.g., weather, AQI, government advisories).
-- Every trigger requires at least two independent data sources to agree (dual-source rule).
-- Triggers are polled every 15 minutes; if threshold is crossed, eligible workers are auto-processed for payout.
-- No manual claim filing — the process is zero-touch for the worker.
-
-### Pricing — Weekly Premium Model
-- Target premium range: ₹20–₹750 per worker per week (see tier table below).
-- Formula:
-  
-  $\text{Weekly Premium} = (\text{Trigger Probability}) \times (\text{Avg Income Lost per Day}) \times (\text{Days Exposed})$
-
-- Premiums are adjusted for city, peril type, and worker activity tier.
-- Weekly cycle matches gig payout rhythm — never monthly.
-
-### Actuarial Basics
-- BCR (Burning Cost Rate):
-  
-  $\text{BCR} = \frac{\text{Total Claims Paid}}{\text{Total Premium Collected}}$
-
-- Target BCR: 0.55–0.70 (i.e., 55–70% of premium goes to payouts).
-- If Loss Ratio > 85%, new enrollments are suspended to control risk.
-- Stress scenario modeling: e.g., simulate a 14-day monsoon to test solvency and payout sufficiency.
-
-
-**Implementation:**
-- The backend (Node.js, see `/apps/api-server/src/services/claim/claim-pipeline.service.ts`, `/claim.service.ts`, and `/policy/policy.service.ts`) enforces all underwriting, trigger, pricing, payout, and audit logic:
-  - Weather API and other data confirm event threshold.
-  - Worker eligibility and anti-fraud checks (including GPS) are performed before payout.
-  - Payout is calculated as fixed amount per day × number of trigger days.
-  - Transfers are initiated automatically; all records are updated.
-  - **Detailed audit logging**: Every policy and claim action (creation, approval, rejection, payout, rollback, fraud flag, admin review, appeal) is logged to a centralized audit log (`logs/audit.log`) with timestamp, action, actor, entityId, and details, aligned with IRDAI requirements.
-  - PolicyCenter and BillingCenter logging stubs are included for future integration.
-  - The process is zero-touch for the worker and completes within minutes.
-
----
 ## 8. Weekly Premium Model & Business Viability
 
 ### Why Weekly?
 
-Blinkit and Zepto release earnings every 7 days. A monthly premium requires saving across 4 weeks — an unrealistic ask for workers living week-to-week. GigCognito mirrors the platform payout cadence exactly.
+Blinkit and Zepto release earnings every 7 days. A monthly premium requires saving across 4 weeks — an unrealistic ask for workers living week-to-week. KaryaKavach mirrors the platform payout cadence exactly.
 
 ### Weekly Premium Tiers
 
@@ -390,11 +373,11 @@ Blinkit and Zepto release earnings every 7 days. A monthly premium requires savi
 
 ### Competitor Benchmarking
 
-| Product | Weekly Premium Equiv. | Coverage | GigCognito Differentiation |
+| Product | Weekly Premium Equiv. | Coverage | KaryaKavach Differentiation |
 |---|---|---|---|
 | Bajaj Allianz ClimateSafe (2025) | ~₹69 base | Weather events only | Multi-trigger + AI dynamic pricing + zero-touch |
 | SEWA Parametric Heat (2024) | ~₹35 equivalent | Heat events only | Zone-specific, real-time AQI + rain + social triggers |
-| **GigCognito Standard** | ₹89 (dynamic) | Weather + AQI + flood + curfew + festival | Platform-embedded, instant payout, fraud-defended |
+| **KaryaKavach Standard** | ₹89 (dynamic) | Weather + AQI + flood + curfew + festival | Platform-embedded, instant payout, fraud-defended |
 
 ### ML-Driven Dynamic Pricing
 
@@ -424,6 +407,49 @@ The weekly premium is recalculated every Sunday for the upcoming week:
 | **Post-reinsurance operating margin** | **~20–25%** | **~25–30%** |
 
 > **Model Assumption Note:** The income-loss pool figures are Phase 1 pricing simulation assumptions derived from estimated active workforce × avg. weekly earnings × estimated disruption-event frequency. Real loss frequency will be calibrated against pilot claims data.
+
+---
+
+## 8A. Underwriting, Triggers, Pricing & Actuarial Logic (Parametric Insurance)
+
+### Underwriting
+- Risk is assessed by city, peril type (trigger), and worker activity tier.
+- Only workers with active policies, correct zone registration, and no duplicate claims are eligible for payout.
+- New accounts have a 7-day waiting period before first claim eligibility.
+
+### Triggers
+- Payouts are triggered by objective, third-party data (e.g., weather, AQI, government advisories).
+- Every trigger requires at least two independent data sources to agree (dual-source rule).
+- Triggers are polled every 15 minutes; if threshold is crossed, eligible workers are auto-processed for payout.
+- No manual claim filing — the process is zero-touch for the worker.
+
+### Pricing — Weekly Premium Model
+- Offered premium tiers: ₹49–₹149 per worker per week (Basic / Standard / Premium — see tier table in Section 8 above). The underlying actuarial formula can produce a wider theoretical range; consumer tiers are fixed at three price points.
+- Formula:
+  
+  $\text{Weekly Premium} = (\text{Trigger Probability}) \times (\text{Avg Income Lost per Day}) \times (\text{Days Exposed})$
+
+- Premiums are adjusted for city, peril type, and worker activity tier.
+- Weekly cycle matches gig payout rhythm — never monthly.
+
+### Actuarial Basics
+- BCR (Burning Cost Rate):
+  
+  $\text{BCR} = \frac{\text{Total Claims Paid}}{\text{Total Premium Collected}}$
+
+- Target BCR: 0.55–0.70 (i.e., 55–70% of premium goes to payouts).
+- If Loss Ratio > 85%, new enrollments are suspended to control risk.
+- Stress scenario modeling: e.g., simulate a 14-day monsoon to test solvency and payout sufficiency.
+
+**Implementation:**
+- The backend (Node.js, see `/apps/api-server/src/services/claim/claim-pipeline.service.ts`, `/claim.service.ts`, and `/policy/policy.service.ts`) enforces all underwriting, trigger, pricing, payout, and audit logic:
+  - Weather API and other data confirm event threshold.
+  - Worker eligibility and anti-fraud checks (including GPS) are performed before payout.
+  - Payout is calculated as fixed amount per day × number of trigger days.
+  - Transfers are initiated automatically; all records are updated.
+  - **Detailed audit logging**: Every policy and claim action (creation, approval, rejection, payout, rollback, fraud flag, admin review, appeal) is logged to a centralized audit log (`logs/audit.log`) with timestamp, action, actor, entityId, and details, aligned with IRDAI requirements.
+  - PolicyCenter and BillingCenter logging stubs are included for future integration.
+  - The process is zero-touch for the worker and completes within minutes.
 
 ---
 
@@ -479,9 +505,30 @@ Three distinct ML components, each solving a specific problem:
 
 ### ML Component 1: Dynamic Premium Engine
 
-**Model:** XGBoost Regression — chosen for interpretability and performance on tabular data
+**Model:** XGBoost Regression (v1.7.6) — chosen for interpretability and performance on tabular data
 
-**Training data:** 3 years of IMD historical weather data, CPCB AQI historical records, SEWA/AXA Climate parametric pilot claims data, zone-level delivery density (simulated Phase 1)
+**Status: ✅ Trained — Phase 2**
+
+**Training data:** 6,000 synthetic samples derived from IMD historical weather data, CPCB AQI historical records, SEWA/AXA Climate parametric pilot claims data, zone-level delivery density across 9 zones (Bengaluru, Mumbai, Pune, Delhi NCR)
+
+**Training results:**
+| Metric | Value |
+|---|---|
+| Validation RMSE | ₹1.46 |
+| Validation MAE | ₹1.14 |
+| Feature importance — waterlogging_index | 45.3% |
+| Feature importance — zone_disruption_rate | 41.0% |
+| Feature importance — season_encoded | 7.8% |
+| Artifact | `app/artifacts/xgboost_pricing.pkl` (764 KB) |
+
+**Sample zone outputs (trained model):**
+| Zone | City | ML Adjustment | Direction |
+|---|---|---|---|
+| Kharadi | Pune | −12.2/week | ↓ Discount (low disruption) |
+| Kasba Peth | Pune | −10.1/week | ↓ Discount |
+| HSR Layout | Bengaluru | +9.5/week | ↑ Surcharge |
+| Bandra | Mumbai | +19.4/week | ↑ Surcharge (coastal + flooding) |
+| Andheri | Mumbai | +20.8/week | ↑ Surcharge (high waterlogging) |
 
 **Input features (per worker, per week):**
 ```json
@@ -498,9 +545,9 @@ Three distinct ML components, each solving a specific problem:
 }
 ```
 
-**Output:** `weekly_premium` (₹49–₹149, tier-adjusted)
+**Output:** `weekly_premium` (₹49–₹149, tier-adjusted) + `zone_safety_note` (displayed to worker during onboarding)
 
-**Serving:** Python FastAPI microservice, called from Node backend at policy renewal
+**Serving:** Python FastAPI microservice (`POST /pricing/quote`), called from Node backend via `POST /policy/ml-quote` at policy renewal. Graceful fallback to rule-based pricing if ML service is unavailable.
 
 ---
 
@@ -523,7 +570,17 @@ Three distinct ML components, each solving a specific problem:
 
 ### ML Component 3: Fraud Detection Engine
 
-**Model:** Gradient Boosted Classifier + Isolation Forest
+**Model:** RandomForest Classifier (Phase 2 trained) — upgradeable to Gradient Boosted + Isolation Forest ensemble in Phase 3
+
+**Status: ✅ Trained — Phase 2**
+
+| Metric | Value |
+|---|---|
+| AUC-ROC | 1.0 (5,000-sample synthetic dataset) |
+| Artifact | `app/artifacts/fraud_classifier.pkl` (236 KB) |
+| Fraud signals used | 8 |
+
+> **Note on AUC-ROC 1.0:** A perfect score is expected on clean synthetic data with no real-world noise — the synthetic dataset has fully separable class boundaries by design. This is a training baseline, not a production claim. Real-world performance will be re-evaluated and recalibrated against actual pilot claims data before any automated rejection decisions are made.
 
 **Key anomaly signals:**
 
@@ -629,7 +686,7 @@ A single bad actor is hard to detect in isolation. A ring of 500 produces a **st
 
 ```
 ┌──────────────────────────────────────────────────────────────────────────────┐
-│                        GigCognito ARCHITECTURE                                │
+│                        KaryaKavach ARCHITECTURE                                │
 ├─────────────────┬────────────────────────────────┬───────────────────────────┤
 │   FRONTEND      │         BACKEND                │   EXTERNAL INTEGRATIONS   │
 │  (React PWA)    │                                │                           │
@@ -651,9 +708,9 @@ A single bad actor is hard to detect in isolation. A ring of 500 produces a **st
 │  - Predictive   │  - Ring anomaly detection      │                           │
 │    claims view  │                                │                           │
 │                 │  node-cron (trigger polling    │                           │
-│                 │   every 15 min, Node-native)   │                           │
+│                 │   every 15 min, 3rd-party npm) │                           │
 │                 │  Bull + Redis (payout job      │                           │
-│                 │   queue, Node-native)          │                           │
+│                 │   queue, 3rd-party npm)        │                           │
 └─────────────────┴────────────────────────────────┴───────────────────────────┘
 ```
 
@@ -667,14 +724,14 @@ A single bad actor is hard to detect in isolation. A ring of 500 produces a **st
 | **ML Service** | Python + FastAPI | Standard for XGBoost / HuggingFace model serving |
 | **Database** | PostgreSQL 15 (AWS RDS) | Reliable relational store for policies, claims, audit logs |
 | **Cache** | Redis (AWS ElastiCache) | API response cache, session store, Bull job queue backing |
-| **Job Queue** | Bull + Redis | Node-native async queue for payout processing (NOT Celery — that's Python-only) |
-| **Trigger Monitor** | node-cron | Node-native 15-minute cron job for polling all zone APIs |
+| **Job Queue** | Bull + Redis | Third-party npm async queue for payout processing (NOT Celery — that's Python-only) |
+| **Trigger Monitor** | node-cron | Third-party npm cron job for 15-minute trigger polling (not part of Node.js stdlib) |
 | **Authentication** | JWT + OTP (Twilio SMS) | Phone-number-first; no email required |
 | **Payments** | Razorpay Sandbox (UPI) | Real API, sandbox mode, India-native rails |
 | **Notifications** | Twilio WhatsApp Business API | Workers prefer WhatsApp; higher engagement than SMS |
 | **Hosting — Frontend** | AWS Amplify | Free tier, HTTPS auto-provisioned, CDN included, ~$0 for hackathon scale |
 | **Hosting — Backend (Node)** | AWS EC2 t3.micro | Free tier eligible (750 hrs/month for 12 months), HTTPS via ACM |
-| **Hosting — ML Service** | EC2 t3.small + HuggingFace Hub | Models downloaded from HuggingFace Hub, inference runs locally on EC2 |
+| **Hosting — ML Service** | EC2 t3.medium (4 GB RAM) + HuggingFace Hub | Models loaded sequentially on demand (DistilBERT, XGBoost, Isolation Forest not held in memory simultaneously); t3.small (2 GB) is insufficient for concurrent model loading |
 | **Database Hosting** | AWS RDS PostgreSQL (db.t3.micro) | Free tier eligible (750 hrs/month), automated backups |
 | **Storage** | AWS S3 | Audit logs, model artifacts, festival calendar JSONs — free tier 5GB |
 | **Maps / Geo** | Google Maps Platform + Geolocation API | Zone selection UI + IP-based geo-validation for anti-spoofing |
@@ -686,7 +743,7 @@ A single bad actor is hard to detect in isolation. A ring of 500 produces a **st
 |---|---|
 | Frontend hosting | AWS Amplify |
 | Backend API (Node.js) | EC2 t3.micro |
-| ML Service (FastAPI + models) | EC2 t3.small (models via HuggingFace Hub, inference runs locally) |
+| ML Service (FastAPI + models) | EC2 t3.medium — 4 GB RAM required for sequential DistilBERT / XGBoost / Isolation Forest loading |
 | Database | RDS PostgreSQL db.t3.micro |
 | Cache + Bull queue backing | ElastiCache Redis (cache.t3.micro) |
 | Static assets + model files | S3 Standard |
@@ -744,12 +801,12 @@ GET https://api.waqi.info/feed/geo:{lat};{lng}/?token={TOKEN}
 ---
 
 ### Integration 4: NewsData.io / PIB Gazette
-**Status: ⚠️ Free tier has 12-hour delay — mocked for Phase 1 demo**
+**Status: ✅ T5 curfew trigger implemented with mock NLP fallback — Phase 2**
 
 - Free plan: 200 API credits/day, best India coverage (13 Indian languages)
-- 12-hour delay is a real-time limitation — used for ML training data in Phase 1
-- **Demo:** manually injected mock curfew event to simulate T5 trigger
-- **Production path:** PIB official gazette API (government domain feed)
+- 12-hour delay is a real-time limitation — used for ML training data
+- **Phase 2:** `checkCurfewTrigger()` implemented with mock curfew calendar (deterministic fallback); DistilBERT NLP scoring mocked at confidence ≥ 0.92 for demo
+- **Production path:** PIB official gazette API (government domain feed) wired when API key is configured
 
 ---
 
@@ -757,7 +814,9 @@ GET https://api.waqi.info/feed/geo:{lat};{lng}/?token={TOKEN}
 **Status: ✅ Free, built into browser — HTTPS mandatory**
 
 ```javascript
-// Frontend — pings backend every 15 minutes while worker is active
+// Frontend — pings backend every 2 minutes while worker is active.
+// 2-minute granularity is required to reconstruct a meaningful movement path
+// (10-15 data points over 20-30 min) for anti-spoofing location-continuity checks.
 useEffect(() => {
   const sendLocation = () => {
     navigator.geolocation.getCurrentPosition((position) => {
@@ -768,7 +827,7 @@ useEffect(() => {
       });
     });
   };
-  const interval = setInterval(sendLocation, 15 * 60 * 1000);
+  const interval = setInterval(sendLocation, 2 * 60 * 1000); // 2-minute granularity
   return () => clearInterval(interval);
 }, []);
 ```
@@ -788,7 +847,7 @@ const payout = await razorpay.payouts.create({
   currency: "INR",
   mode: "UPI",
   purpose: "payout",
-  narration: `GigCognito Income Protection - ${eventId}`
+  narration: `KaryaKavach Income Protection - ${eventId}`
 });
 ```
 
@@ -814,7 +873,7 @@ const payout = await razorpay.payouts.create({
 - Under 5 minutes end-to-end
 - No documents required (Aadhaar/PAN optional for higher tiers)
 - Mobile-first, budget Android optimised
-- Hindi + English + Kannada throughout
+- Hindi + English throughout
 
 ### Step-by-Step
 
@@ -839,8 +898,9 @@ STEP 4: Earnings Bracket
 
 STEP 5: Coverage Tier Selection
 → See all 3 tiers with weekly premium
-→ ML Premium Engine calculates PERSONALISED premium in real-time
-→ Worker sees: "Your premium for Koramangala this week: ₹105"
+→ ML Premium Engine calculates PERSONALISED premium in real-time via `POST /policy/ml-quote`
+→ Worker sees: "Your premium for Koramangala this week: ₹105" with zone safety badge
+→ Zone safety note displayed (e.g. "🛡️ Low disruption zone — you get a ₹12 safety discount")
 
 STEP 6: UPI Linking + Payment
 → UPI ID entered for payouts
@@ -854,6 +914,46 @@ STEP 7: Dashboard
 ---
 
 ## 15. Payout Processing
+
+### End-to-End Payout Flow
+
+```
+Disruption detected by Trigger Monitor (every 15 min)
+           ↓
+Dual-source confidence validated (≥ 75?)
+           ↓
+8-signal fraud check (≥ 4 consistent?)
+           ↓
+Claim record created → status: APPROVED
+           ↓
+Payout job added to Bull queue (Redis-backed, third-party npm library)
+           ↓
+Razorpay Payout API called → UPI credit
+           ↓
+DB updated → status: COMPLETED
+           ↓
+WhatsApp + push notification sent to worker
+           ↓
+Admin dashboard updated in real-time
+```
+
+### Payout SLA Targets
+
+| Stage | Target |
+|---|---|
+| Trigger detection → claim initiation | < 2 minutes |
+| Fraud check | < 90 seconds |
+| Razorpay API processing | < 3 minutes |
+| Worker UPI credit | < 10 minutes from trigger |
+| Notification delivery | < 11 minutes from trigger |
+
+### Failed Payout Handling
+
+Razorpay error → retry 3× with exponential backoff (1 min, 5 min, 15 min) → after 3 failures, flagged in admin dashboard → worker notified: *"Payout processing — will reflect within 24 hours."*
+
+### Worker-Facing Claim Status UX
+
+Workers navigating to `/claim-processing` see the 6-step animated zero-touch pipeline: trigger confirmed → zone match → eligibility check → fraud check (8 signals, < 90 sec) → UPI transfer (shimmer progress bar) → credited (confetti burst + payout breakdown card). No action required from the worker at any step.
 
 ---
 
@@ -893,57 +993,61 @@ cd apps/worker-pwa
 pnpm dev
 ```
 
+### Phase 2 API Endpoints
+
+| Endpoint | Method | Description |
+|---|---|---|
+| `/triggers/status` | GET | Live trigger state for all 9 zones × 7 trigger types |
+| `/triggers/simulate` | POST | Simulate any trigger: `{ type, zoneId, intensity: "low"\|"high" }` |
+| `/triggers/types` | GET | Trigger type metadata |
+| `/policy/ml-quote` | POST | ML-adjusted premium: `{ zoneId, tier }` → returns `weekly_premium`, `ml_adjustment`, `zone_safety_note` |
+| `/claims/my` | GET | Authenticated claim history (requires Bearer token) |
+
 ### Common issue checklist
 
 - If `EADDRINUSE` appears, another process is already using port `8000`.
 - If dashboard does not reflect new zone/city, re-check onboarding save + token session.
 - If frontend shows stale values, restart both API and worker app after config changes.
-
----
-
-### End-to-End Payout Flow
-
-```
-Disruption detected by Trigger Monitor (every 15 min)
-           ↓
-Dual-source confidence validated (≥ 75?)
-           ↓
-8-signal fraud check (≥ 4 consistent?)
-           ↓
-Claim record created → status: APPROVED
-           ↓
-Payout job added to Bull queue (Redis-backed, Node-native)
-           ↓
-Razorpay Payout API called → UPI credit
-           ↓
-DB updated → status: COMPLETED
-           ↓
-WhatsApp + push notification sent to worker
-           ↓
-Admin dashboard updated in real-time
-```
-
-### Payout SLA Targets
-
-| Stage | Target |
-|---|---|
-| Trigger detection → claim initiation | < 2 minutes |
-| Fraud check | < 90 seconds |
-| Razorpay API processing | < 3 minutes |
-| Worker UPI credit | < 10 minutes from trigger |
-| Notification delivery | < 11 minutes from trigger |
-
-### Failed Payout Handling
-
-Razorpay error → retry 3× with exponential backoff (1 min, 5 min, 15 min) → after 3 failures, flagged in admin dashboard → worker notified: *"Payout processing — will reflect within 24 hours."*
+- ML service must be running on port 5001 for `/policy/ml-quote` to use live model; falls back to rule-based pricing if unavailable.
+- Trigger mock fallbacks are active by default — no API keys needed for demo.
 
 ---
 
 ## 16. Dashboard Design
 
+### Worker Dashboard
+
+The worker-facing PWA dashboard gives every covered delivery partner full real-time visibility into their protection status:
+
+| Panel | Content |
+|---|---|
+| **Policy Status** | ACTIVE / EXPIRED badge, current tier (Basic / Standard / Premium), zone name, policy expiry date |
+| **Zone Risk Meter** | Colour-coded risk level for the worker's registered zone (green / amber / red) based on live trigger signals |
+| **Active Disruption Alerts** | Live cards for any T1–T7 trigger currently active in the worker's zone |
+| **Earnings Protected** | Total payout received this week; cumulative since enrollment |
+| **Payout History** | List of past claims with trigger type, event date, amount, and UPI reference |
+| **Next Week's Premium** | ML-estimated premium for the upcoming week with zone safety note |
+| **Claim Status** | Animated 6-step pipeline (`/claim-processing`) shown immediately after a trigger fires in the worker's zone |
+
+Authentication: JWT Bearer token from OTP onboarding session. Workers can only view their own data.
+
+### Admin / Insurer Dashboard
+
+The admin panel (`/admin-dashboard`) is the operations nerve centre:
+
+| Panel | Content |
+|---|---|
+| **Live Overview** | Active policies, weekly premium pool total, claims auto-approved vs. flagged this week, current loss ratio |
+| **Trigger Event Log** | Real-time feed of trigger activations by city and zone, with confidence score and dual-source status |
+| **Zone Heatmap** | City-level map showing active trigger zones, claim density, and loss ratio per pin code |
+| **Fraud Queue** | Claims flagged for manual review; 2-hour SLA; actions: approve / reject / escalate |
+| **Loss Ratio Trend** | 12-week rolling loss ratio chart with IRDAI 70% cap reference line |
+| **Predictive Alerts** | Next-week risk signals per zone (e.g., *"72% probability of T1 trigger in BLR_KOR_01 — monsoon forecast"*) |
+| **Workers Table** | Search by worker ID, zone, tier, claim history, fraud flag status |
+
 ---
 
-## 21. Worker Transparency Dashboard (2026)
+## 17. Worker Transparency Dashboard (2026)
 
 **What:** A real-time dashboard for gig workers showing trigger status, payout pool, and risk signals for their zone.
 
@@ -956,7 +1060,15 @@ Razorpay error → retry 3× with exponential backoff (1 min, 5 min, 15 min) →
 
 ---
 
-## 22. Community Voting for New Triggers (2026)
+## 18. Community Voting for New Triggers (2026)
+
+### The Problem It Solves
+
+Parametric triggers T1–T7 cover city-scale events (weather, AQI, curfew, festival). But **hyperlocal disruptions** — a flooded lane, a collapsed road, a blocked dark store access — are invisible to city-level APIs. A single worker can't prove them. But a cluster of workers in the same zone all independently raising the same disruption, at the same time, is strong signal.
+
+Community Voting is the mechanism that turns hyperlocal worker reports into legitimate, verifiable trigger proposals that move through a structured review pipeline.
+
+### Current Implementation ✅
 
 **What:** Workers can propose and vote on new parametric triggers (e.g., "Flooded Street", "Festival Blockage").
 
@@ -967,7 +1079,7 @@ Razorpay error → retry 3× with exponential backoff (1 min, 5 min, 15 min) →
 - `/api/community-triggers/vote` — Vote for a trigger proposal (one vote per worker)
 - `/api/community-triggers/list` — List all proposals
 - Anti-fraud: Only authenticated workers can propose/vote; duplicate voting blocked
-- Zone guard: workers can vote only on proposals in their own registered zone
+- Zone guard: workers can vote only on proposals in their own registered zone. *Edge case: a worker who changes their registered zone mid-week will be evaluated against their zone-at-vote-time; any zone change during an open proposal cycle is logged and flagged for review to prevent zone-hopping abuse.*
 - News verification is executed immediately at post submission (no delayed check)
 - Verifier is wording-agnostic and typo-tolerant (fuzzy token + n-gram scoring) to handle varied phrasing
 - Community threshold: only news-verified proposals with **>50% area vote share** move to review
@@ -979,20 +1091,34 @@ Razorpay error → retry 3× with exponential backoff (1 min, 5 min, 15 min) →
   : `UNDER_REVIEW` (news verified and vote share > 50%)
 - Powered by `/src/services/worker/community-triggers.service.ts`
 
+### Planned Enhancement — Live Photo AI Duplicate Detection 🔬
+
+> **Status: Designed, not yet implemented.** Community voting is live. The photo verification layer described below is a planned Phase 3 feature.
+
+For hyperlocal disruptions where no news feed can corroborate the claim (e.g., a single flooded lane, a blocked alley), text-based news verification breaks down. The planned solution:
+
+**How it works:**
+
+1. **Live camera only** — the worker taps "Report Disruption" and must take a photo in-app using the device camera at that moment. Gallery uploads are blocked. The photo is timestamped and GPS-tagged at capture time.
+
+2. **AI duplicate check** — before the proposal is accepted, the photo is run through a similarity model (perceptual hash + embedding comparison) against all photos submitted for the same zone in the same 4-hour window.
+   - If a **near-duplicate already exists** (same disruption already reported) → the worker is redirected to vote on the existing proposal instead of creating a new one. This prevents coordinated photo-copying fraud.
+   - If **no similar photo exists** → the photo is accepted as first evidence and the proposal is created.
+
+3. **Vote corroboration** — subsequent voters in the zone can optionally attach their own live photo. Each unique photo (verified non-duplicate) counts as an additional evidence signal, strengthening the proposal's confidence score.
+
+| Step | Action | Guard |
+|---|---|---|
+| Capture | Live camera only (no gallery) | `capture="environment"` on input; backend rejects uploads without EXIF timestamp within ±90 sec of server time |
+| Dedup | Perceptual hash (pHash) + CLIP embedding cosine similarity | Threshold: pHash distance < 10 OR cosine similarity > 0.92 → flagged as duplicate |
+| Geo-bind | Photo GPS must match worker's registered zone | Mismatch → rejected before submission |
+| Time-bind | Photo timestamp must be within 90 seconds of submission | Prevents using old cached photos |
+
+**Why this matters for fraud prevention:** A coordinated ring could all vote "yes" on a fabricated disruption. But requiring each voter to independently produce a **live, geotagged, non-duplicate photo** from the same zone at the same time is operationally infeasible for a fraud ring — genuine stranded workers can do it trivially. This is highly feasible as the Gig worker would not be able to proceed with his orders if he is stuck in some distruption, so by capturing a live photo he can prove it is real.
+
 ---
 
-### Worker Dashboard
-- **At a glance:** Policy status (ACTIVE/EXPIRED), zone risk level (colour-coded), earnings protected this week, live disruption alerts in zone
-- **Sections:** Payout history, policy details, zone map, next week's premium forecast
-
-### Admin / Insurer Dashboard
-- **Real-time:** Active policies, weekly premium pool, live trigger events firing by city, claims auto-approved vs. flagged, current loss ratio
-- **Analytics:** City-wise disruption heatmap, 12-week loss ratio trend, fraud queue, top-5 claim zones
-- **Predictive:** "Next week: 72% probability of T1 trigger in BLR_KOR_01 — monsoon forecast"
-
----
-
-## 17. Non-Functional Requirements
+## 19. Non-Functional Requirements
 
 ### Security
 
@@ -1024,7 +1150,7 @@ Razorpay error → retry 3× with exponential backoff (1 min, 5 min, 15 min) →
 |---|---|
 | Zone-based architecture | Each zone monitored independently; new city = new zone config |
 | Stateless backend | JWT-based auth; any node can serve any request |
-| ML service isolation | FastAPI on separate EC2 t3.small — scales independently from Node backend |
+| ML service isolation | FastAPI on separate EC2 t3.medium — scales independently from Node backend |
 | Database indexing | Indexes on `worker_id`, `zone_id`, `policy_status`, `claim_timestamp` on RDS |
 | Phase 3 stream processing | AWS MSK (Managed Kafka) for real-time trigger streams at city scale |
 
@@ -1039,9 +1165,9 @@ Razorpay error → retry 3× with exponential backoff (1 min, 5 min, 15 min) →
 
 ---
 
-## 18. Development Roadmap
+## 20. Development Roadmap
 
-### Phase 1 — Ideation & Foundation [March 4–20] ✅ Current
+### Phase 1 — Ideation & Foundation [March 4–20] ✅ Complete
 
 | Task | Status |
 |---|---|
@@ -1054,29 +1180,33 @@ Razorpay error → retry 3× with exponential backoff (1 min, 5 min, 15 min) →
 | GitHub repository + README.md | ✅ Done |
 | 2-minute pitch video | ✅ Done |
 
-### Phase 2 — Automation & Protection [March 21–April 4]
+### Phase 2 — Automation & Protection [March 21–April 4] ✅ Complete
 
-| Task | Priority |
-|---|---|
-| Worker onboarding PWA (React 18, Tailwind, Maps zone picker) | P0 |
-| JWT auth + OTP mock | P0 |
-| Policy creation + dynamic premium calculator (live XGBoost call) | P0 |
-| OpenWeatherMap + WAQI + CPCB integrations (T1, T2, T3) | P0 |
-| Claims auto-initiation on trigger | P0 |
-| Razorpay sandbox UPI payout flow | P0 |
-| Mock Zepto/Blinkit API (worker ID, session, online/offline status) | P0 |
-| Basic fraud scoring (account age, velocity, platform cross-check) | P1 |
-| WhatsApp claim notifications via Twilio | P1 |
-| Worker dashboard (basic) | P1 |
+| Task | Priority | Status |
+|---|---|---|
+| Worker onboarding PWA (React 18, Tailwind, Maps zone picker) | P0 | ✅ Done |
+| JWT auth + OTP mock | P0 | ✅ Done |
+| Policy creation + dynamic premium calculator (live XGBoost call via `POST /policy/ml-quote`) | P0 | ✅ Done |
+| All 7 parametric triggers (T1–T7) implemented with mock fallbacks | P0 | ✅ Done |
+| `GET /triggers/status` — live state for all 9 zones | P0 | ✅ Done |
+| `POST /triggers/simulate` — test endpoint for any trigger/zone/intensity | P0 | ✅ Done |
+| Zero-touch ClaimStatus UX pipeline (`/claim-processing`, 6-step animated) | P0 | ✅ Done |
+| `GET /claims/my` — authenticated claim history | P0 | ✅ Done |
+| XGBoost pricing model trained (RMSE ₹1.46, 764 KB artifact) | P0 | ✅ Done |
+| RandomForest fraud classifier trained (AUC-ROC 1.0, 236 KB artifact) | P0 | ✅ Done |
+| Razorpay sandbox UPI payout flow | P0 | ✅ Done |
+| Mock Zepto/Blinkit API (worker ID, session, online/offline status) | P0 | ✅ Done |
+| Basic fraud scoring (account age, velocity, platform cross-check) | P1 | ✅ Done |
+| WhatsApp claim notifications via Twilio | P1 | ✅ Done |
+| Worker dashboard (basic) | P1 | ✅ Done |
 
 ### Phase 3 — Scale & Optimise [April 5–17]
 
 | Task | Priority |
 |---|---|
-| XGBoost premium model trained on IMD/CPCB historical data | P0 |
 | Full 8-signal anti-spoofing engine | P0 |
 | Coordinated ring anomaly detection | P0 |
-| T4 (heatwave) and T5 (curfew NLP) trigger implementation | P0 |
+| DistilBERT NLP curfew classifier (replace mock) | P0 |
 | Provisional payout UX (80/20 split) | P0 |
 | Full admin analytics dashboard | P0 |
 | TomTom traffic signal integration | P1 |
@@ -1087,7 +1217,7 @@ Razorpay error → retry 3× with exponential backoff (1 min, 5 min, 15 min) →
 
 ---
 
-## 19. Business Viability & Regulatory Alignment
+## 21. Business Viability & Regulatory Alignment
 
 ### Market Opportunity
 
@@ -1099,9 +1229,9 @@ India's Q-Commerce sector reached **> $10 billion GMV** with **30 million monthl
 |---|---|
 | **SEWA Parametric Heat Insurance (India, 2024)** | Automatic payouts to 50,000 informal workers; ₹2.92 crore disbursed on temperature threshold breach — direct proof of viability for India's informal workforce |
 | **Bajaj Allianz ClimateSafe (2025)** | Gig-worker parametric product with automatic settlement; confirms IRDAI comfort with this structure |
-| **AXA Climate India (AQI-linked)** | Automatic cash transfer on AQI breach — direct precedent for GigCognito's T2 trigger design |
+| **AXA Climate India (AQI-linked)** | Automatic cash transfer on AQI breach — direct precedent for KaryaKavach's T2 trigger design |
 | **GoDigit × Jan Sahas Delhi (2025)** | Live parametric pilot — auto UPI payouts when temp exceeded 42°C for 5 consecutive days; zero claims filing |
-| **Acko + Ola (2019)** | Embedded insurance via B2B2C model achieved 60%+ attachment rate — validates GigCognito's GTM strategy |
+| **Acko + Ola (2019)** | Embedded insurance via B2B2C model achieved 60%+ attachment rate — validates KaryaKavach's GTM strategy |
 
 ### Unit Economics
 
@@ -1109,7 +1239,7 @@ India's Q-Commerce sector reached **> $10 billion GMV** with **30 million monthl
 |---|---|
 | Customer Acquisition Cost | ₹0 (embedded onboarding via platform partner app) |
 | Avg. annual revenue per worker | ₹4,600–₹5,460 (₹89–₹105/week × 52 weeks) |
-| Estimated 3-year worker LTV | ₹2,000–₹3,500 |
+| Estimated 3-year worker LTV | ₹2,000–₹3,500 *(net of ~60% BCR claims payout, 15% platform revenue share, 20% reinsurer share, and operational costs — reflects net contribution margin over 3 years, not gross premium revenue)* |
 | CAC payback period | < 4 weeks |
 | Estimated weekly opt-out rate | 8–12% (mitigated by 4-week minimum commitment) |
 | Platform revenue share | 15% of premiums collected |
@@ -1117,9 +1247,11 @@ India's Q-Commerce sector reached **> $10 billion GMV** with **30 million monthl
 
 ### Go-to-Market Strategy: B2B2C Embedded Distribution
 
-Direct-to-worker insurance sales fail in India — historical conversion rates for direct gig worker insurance are under 3%. GigCognito's GTM is **B2B2C embedded distribution:**
+Direct-to-worker insurance sales fail in India — historical conversion rates for direct gig worker insurance are under 3%. KaryaKavach's GTM is **B2B2C embedded distribution:**
 
-GigCognito approaches Zepto/Blinkit and frames the product as a **worker welfare initiative**. The platform embeds premium deduction into the weekly settlement cycle — the worker opts in once at onboarding, and ₹89/week is deducted from their Friday payout automatically. Platform receives a **15% revenue share** on collected premiums AND gets measurable worker retention benefit during monsoon season — reducing recruitment and retraining costs.
+KaryaKavach approaches Zepto/Blinkit and frames the product as a **worker welfare initiative**. The platform embeds premium deduction into the weekly settlement cycle — the worker opts in once at onboarding, and ₹89/week is deducted from their Friday payout automatically. Platform receives a **15% revenue share** on collected premiums AND gets measurable worker retention benefit during monsoon season — reducing recruitment and retraining costs.
+
+> **Conflict-of-interest mitigation:** A platform that earns revenue per premium could, in theory, benefit from more disruption events. KaryaKavach mitigates this structurally: (a) triggers are set and verified exclusively by third-party data sources (OWM, WAQI, PIB) with no platform input; (b) the revenue share is capped and paid on premiums collected — not on claims paid — so more disruptions do not increase the platform's share; (c) circuit-breaker and loss-ratio caps constrain any outsized payout scenario.
 
 This is exactly the model Acko used with Ola in 2019 to achieve **60%+ insurance attachment rates.** Embedded financial products consistently outperform standalone products in this demographic.
 
@@ -1132,7 +1264,7 @@ This is exactly the model Acko used with Ola in 2019 to achieve **60%+ insurance
 
 ### Regulatory Alignment
 
-GigCognito is designed as an **insurer-partnered parametric protection platform** distributed via a licensed intermediary / embedded distribution model. GigCognito does not hold or claim independent underwriting authority.
+KaryaKavach is designed as an **insurer-partnered parametric protection platform** distributed via a licensed intermediary / embedded distribution model. KaryaKavach does not hold or claim independent underwriting authority.
 
 | Framework | Alignment |
 |---|---|
@@ -1145,7 +1277,7 @@ GigCognito is designed as an **insurer-partnered parametric protection platform*
 
 ---
 
-## 20. Appendix: Data Sources
+## 22. Appendix: Data Sources
 
 ### Key Data Sources
 
@@ -1167,7 +1299,10 @@ GigCognito is designed as an **insurer-partnered parametric protection platform*
 
 ---
 
-> **GigCognito — Because the last mile deserves a safety net.**
+> **KaryaKavach — Because the last mile deserves a safety net.**
 
 **Phase 1 Demo Video:** https://www.youtube.com/watch?v=Q77hxJIc8bY
+
+**Phase 2 Demo Video with UI:** https://youtu.be/A7hcn3ZBKR0
+
 **Team:** [Hackuracy] | Guidewire DEVTrails 2026

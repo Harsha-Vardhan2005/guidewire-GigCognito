@@ -3,6 +3,7 @@ import cors         from "cors";
 import authRoutes   from "./routes/auth.routes";
 import policyRoutes from "./routes/policy.routes";
 import claimRoutes  from "./routes/claim.routes";
+import triggerRoutes from "./routes/trigger.routes";
 import workerRoutes from "./routes/worker.routes";
 import communityTriggersRoutes from "./routes/community-triggers.routes";
 import workerDashboardRoutes from "./routes/worker-dashboard.routes";
@@ -23,6 +24,7 @@ app.get("/health", (_req, res) => {
 app.use("/auth",   authRoutes);
 app.use("/policy", policyRoutes);
 app.use("/claims", claimRoutes);
+app.use("/triggers", triggerRoutes);
 app.use("/worker", workerRoutes);
 app.use("/api/community-triggers", communityTriggersRoutes);
 app.use("/api/worker-dashboard", workerDashboardRoutes);

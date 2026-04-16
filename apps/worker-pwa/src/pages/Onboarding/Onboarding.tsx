@@ -23,7 +23,17 @@ const SEASONS: Record<string, string> = {
   PNE_KSB_01: "normal", PNE_KHR_01: "normal",
 };
 
-interface Quote { basePremium: number; seasonalAdj: number; zoneAdj: number; tenureDiscount: number; noClaimDiscount: number; finalPremium: number; breakdown: string; }
+interface Quote {
+  basePremium: number; seasonalAdj: number; zoneAdj: number;
+  tenureDiscount: number; noClaimDiscount: number; finalPremium: number;
+  breakdown: string;
+  // ML fields (present when ml-quote succeeds)
+  ml_adjustment?: number;
+  ml_adjusted_premium?: number;
+  zone_safety_note?: string;
+  risk_tier?: string;
+  model?: string;
+}
 
 export default function Onboarding() {
   const [step, setStep] = useState(0);
@@ -60,16 +70,10 @@ export default function Onboarding() {
   async function fetchQuote() {
     setLoadingQuote(true);
     try {
-      const res = await fetch(`${API_BASE}/policy/quote`, {
+      const res = await fetch(`${API_BASE}/policy/ml-quote`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          tier,
-          season: SEASONS[zone] ?? "normal",
-          zoneRisk: zone.startsWith("DEL") || zone.startsWith("BLR_KOR") ? "HIGH" : "MEDIUM",
-          tenureMonths: 0,
-          claimsLast4Weeks: 0,
-        }),
+        body: JSON.stringify({ zoneId: zone, tier }),
       });
       const data = await res.json();
       setQuote(data);
@@ -378,11 +382,27 @@ export default function Onboarding() {
               <div style={{ textAlign: "center", padding: "20px 0", color: "rgba(255,255,255,0.4)", fontSize: 14 }}>Calculating your rate...</div>
             ) : quote && (
               <div style={{ background: "rgba(29,158,117,0.1)", border: "1px solid rgba(29,158,117,0.25)", borderRadius: 10, padding: "12px 14px", marginBottom: 20 }}>
-                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline" }}>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 4 }}>
                   <span style={{ fontSize: 13, color: "rgba(255,255,255,0.5)" }}>Your rate ({tier})</span>
-                  <span style={{ fontSize: 24, fontWeight: 700, color: "#1D9E75", fontFamily: "'Space Mono', monospace" }}>₹{quote.finalPremium}<span style={{ fontSize: 13, fontWeight: 400, color: "rgba(255,255,255,0.4)" }}>/week</span></span>
+                  <span style={{ fontSize: 24, fontWeight: 700, color: "#1D9E75", fontFamily: "'Space Mono', monospace" }}>
+                    ₹{quote.ml_adjusted_premium ?? quote.finalPremium}
+                    <span style={{ fontSize: 13, fontWeight: 400, color: "rgba(255,255,255,0.4)" }}>/week</span>
+                  </span>
                 </div>
-                <p style={{ fontSize: 11, color: "rgba(255,255,255,0.3)", margin: "6px 0 0", fontFamily: "'Space Mono', monospace" }}>{quote.breakdown}</p>
+                {quote.ml_adjustment != null && quote.ml_adjustment !== 0 && (
+                  <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 4 }}>
+                    <span style={{ fontSize: 11, padding: "2px 7px", borderRadius: 20, background: quote.ml_adjustment < 0 ? "rgba(29,158,117,0.2)" : "rgba(248,113,113,0.15)", color: quote.ml_adjustment < 0 ? "#1D9E75" : "#f87171", fontWeight: 600 }}>
+                      {quote.ml_adjustment < 0 ? `−₹${Math.abs(quote.ml_adjustment)}` : `+₹${quote.ml_adjustment}`} zone adjustment
+                    </span>
+                    {quote.model && quote.model !== "rule_based_fallback" && (
+                      <span style={{ fontSize: 10, color: "rgba(255,255,255,0.3)" }}>XGBoost ML</span>
+                    )}
+                  </div>
+                )}
+                {quote.zone_safety_note && (
+                  <p style={{ fontSize: 11, color: "rgba(255,255,255,0.45)", margin: "4px 0 0", lineHeight: 1.5 }}>🛡️ {quote.zone_safety_note}</p>
+                )}
+                <p style={{ fontSize: 10, color: "rgba(255,255,255,0.25)", margin: "6px 0 0", fontFamily: "'Space Mono', monospace" }}>{quote.breakdown}</p>
               </div>
             )}
 

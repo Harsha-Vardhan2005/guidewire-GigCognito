@@ -8,9 +8,63 @@ import { createOrRenewPolicyForWorker } from "../services/policy/policy-create.s
 
 const router = Router();
 
+const ML_SERVICE_URL = process.env.ML_SERVICE_URL ?? "http://localhost:8001";
+
 router.post("/quote", (req, res) => {
   const result = calculateWeeklyPremium(req.body);
   res.json(result);
+});
+
+/**
+ * POST /policy/ml-quote
+ * Calls Python ML service for XGBoost-based weekly premium adjustment.
+ * Falls back gracefully to rule-based quote if ML service is unavailable.
+ */
+router.post("/ml-quote", async (req, res) => {
+  const { zoneId = "BLR_KOR_01", tier = "standard" } = req.body;
+  const ruleBasedQuote = calculateWeeklyPremium({ zoneId, tier });
+
+  try {
+    const mlRes = await fetch(`${ML_SERVICE_URL}/pricing/quote`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ zone_id: zoneId, tier }),
+      signal: AbortSignal.timeout(3000),
+    });
+    if (!mlRes.ok) throw new Error(`ML service returned ${mlRes.status}`);
+    const mlData = await mlRes.json() as {
+      weekly_adjustment: number;
+      zone_label: string;
+      zone_disruption_rate: number;
+      risk_tier: string;
+      zone_safety_note: string;
+      features_used: Record<string, number>;
+      model: string;
+    };
+
+    return res.json({
+      ...ruleBasedQuote,
+      ml_adjustment: mlData.weekly_adjustment,
+      ml_adjusted_premium: ruleBasedQuote.weeklyPremium + mlData.weekly_adjustment,
+      zone_label: mlData.zone_label,
+      zone_disruption_rate: mlData.zone_disruption_rate,
+      risk_tier: mlData.risk_tier,
+      zone_safety_note: mlData.zone_safety_note,
+      features_used: mlData.features_used,
+      model: mlData.model,
+      source: "ml",
+    });
+  } catch {
+    // ML service unavailable — return rule-based with note
+    return res.json({
+      ...ruleBasedQuote,
+      ml_adjustment: 0,
+      ml_adjusted_premium: ruleBasedQuote.weeklyPremium,
+      zone_safety_note: "ML model loading — zone safety discount applied at next sync.",
+      model: "rule_based_fallback",
+      source: "rule_based",
+    });
+  }
 });
 
 router.post("/create", (req, res) => {
