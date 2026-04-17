@@ -7,12 +7,6 @@
 
 ## 0. Current Build Status (April 2026)
 
-Phase 2 implementation complete. All core systems are live and API-backed.
-
-### Phase 1 ✅ — Architecture, design, policy logic, actuarial model
-
-### Phase 2 ✅ — All deliverables implemented and pushed
-
 | Feature | Status | Notes |
 |---|---|---|
 | Worker onboarding PWA | ✅ Live | JWT auth, zone picker, OTP mock |
