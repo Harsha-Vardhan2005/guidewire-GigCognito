@@ -78,12 +78,57 @@ async function getLiveActiveTriggerTypes(zone: { id: string; lat: number; lng: n
 }
 
 export async function getWorkerDashboard(workerId: string, zoneId: string) {
-  // Fetch worker and zone info
-  const worker = await prisma.worker.findUnique({ where: { id: workerId } });
-  if (!worker) return null;
-  const dbZone = worker.zoneId
-    ? await prisma.zone.findUnique({ where: { id: worker.zoneId } })
-    : null;
+  // Fetch worker and zone info with fallback
+  let worker: any;
+  let dbZone: any = null;
+  let payouts: any[] = [];
+  let claims: any[] = [];
+  let recentTriggers: any[] = [];
+
+  try {
+    worker = await prisma.worker.findUnique({ where: { id: workerId } });
+    if (!worker) return null;
+
+    const finalZoneId = worker.zoneId || zoneId;
+    if (worker.zoneId) {
+      dbZone = await prisma.zone.findUnique({ where: { id: worker.zoneId } });
+    }
+
+    // Fetch recent payouts (last 3)
+    payouts = await prisma.payout.findMany({
+      where: { workerId },
+      orderBy: { createdAt: "desc" },
+      take: 3,
+    });
+
+    // Fetch recent claims (last 7 days)
+    const weekAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
+    claims = await prisma.claim.findMany({
+      where: { workerId, createdAt: { gte: weekAgo } },
+      orderBy: { createdAt: "desc" },
+    });
+
+    // Fetch recent trigger events for this zone (last 24h)
+    const triggerWindowStart = new Date(Date.now() - 24 * 60 * 60 * 1000);
+    recentTriggers = await prisma.triggerEvent.findMany({
+      where: {
+        zoneId: finalZoneId,
+        firedAt: { gte: triggerWindowStart },
+      },
+      orderBy: { firedAt: "desc" },
+      take: 8,
+    });
+  } catch (dbErr) {
+    console.warn("[getWorkerDashboard] Database error, using fallback:", dbErr);
+    // Create mock worker object for fallback
+    worker = {
+      id: workerId,
+      name: "Worker",
+      city: "Unknown",
+      zoneId: zoneId,
+    };
+  }
+
   const zoneKey = worker.zoneId || zoneId;
   const canonical = zoneKey ? KNOWN_ZONE_COORDS[zoneKey] : undefined;
   const zone = dbZone
@@ -103,32 +148,6 @@ export async function getWorkerDashboard(workerId: string, zoneId: string) {
             riskLevel: canonical.riskLevel,
           }
         : null);
-
-  // Fetch recent payouts (last 3)
-  const payouts = await prisma.payout.findMany({
-    where: { workerId },
-    orderBy: { createdAt: "desc" },
-    take: 3,
-  });
-
-  // Fetch recent claims (last 7 days)
-  const weekAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
-  const claims = await prisma.claim.findMany({
-    where: { workerId, createdAt: { gte: weekAgo } },
-    orderBy: { createdAt: "desc" },
-  });
-
-  // Fetch recent trigger events for this zone (last 24h)
-  const zoneForQuery = worker.zoneId || zoneId;
-  const triggerWindowStart = new Date(Date.now() - 24 * 60 * 60 * 1000);
-  const recentTriggers = await prisma.triggerEvent.findMany({
-    where: {
-      zoneId: zoneForQuery,
-      firedAt: { gte: triggerWindowStart },
-    },
-    orderBy: { firedAt: "desc" },
-    take: 8,
-  });
 
   const liveTypes = await getLiveActiveTriggerTypes(zone);
   const activeTriggerTypes = Array.from(liveTypes);

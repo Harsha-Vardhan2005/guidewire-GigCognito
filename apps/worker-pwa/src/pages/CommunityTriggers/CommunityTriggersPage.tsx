@@ -7,6 +7,11 @@ interface Proposal {
   votes: number;
   status: string;
   createdAt: string;
+  newsVerified?: boolean;
+  twitterVerified?: boolean;
+  twitterConfidence?: number;
+  newsEvidence?: string[];
+  twitterEvidence?: string[];
 }
 
 const API_BASE = import.meta.env.VITE_API_URL ?? "http://localhost:8000";
@@ -79,7 +84,14 @@ export default function CommunityTriggersPage() {
       });
       const data = await res.json();
       if (res.ok) {
-        setSuccess("Posted. News check completed instantly.");
+        const verificationMsg = data.newsVerified && data.twitterVerified 
+          ? "Posted. Verified by News & Twitter ✓" 
+          : data.newsVerified 
+          ? "Posted. Verified by News ✓"
+          : data.twitterVerified 
+          ? `Posted. Verified by Twitter (${Math.round(data.twitterConfidence * 100)}%) ✓`
+          : "Posted. Under review.";
+        setSuccess(verificationMsg);
         setProposals(p => [data, ...p]);
         setTitle(""); setDescription(""); setTriggerType(""); setFormOpen(false);
       } else {
@@ -255,6 +267,24 @@ export default function CommunityTriggersPage() {
                     </div>
                     <p style={{ fontSize: 15, fontWeight: 600, lineHeight: 1.35, marginBottom: 6, color: "#fff" }}>{p.title}</p>
                     <p style={{ fontSize: 13, color: "rgba(255,255,255,0.45)", lineHeight: 1.6 }}>{p.description}</p>
+                    
+                    {/* Verification badges */}
+                    {(p.newsVerified || p.twitterVerified) && (
+                      <div style={{ display: "flex", gap: 6, marginBottom: 10, flexWrap: "wrap" }}>
+                        {p.newsVerified && (
+                          <span style={{ fontSize: 11, fontWeight: 600, padding: "4px 10px", borderRadius: 14, background: "rgba(29,158,117,0.15)", color: "#5DCAA5", border: "1px solid rgba(29,158,117,0.3)", display: "flex", alignItems: "center", gap: 5 }}>
+                            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><polyline points="20 6 9 17 4 12"/></svg>
+                            News verified
+                          </span>
+                        )}
+                        {p.twitterVerified && (
+                          <span style={{ fontSize: 11, fontWeight: 600, padding: "4px 10px", borderRadius: 14, background: "rgba(100,149,237,0.15)", color: "#85B7EB", border: "1px solid rgba(100,149,237,0.3)", display: "flex", alignItems: "center", gap: 5 }}>
+                            <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor"><path d="M23 3a10.9 10.9 0 01-3.14 1.53 4.48 4.48 0 00-7.86 3v1A10.66 10.66 0 013 4s-4 9 5 13a11.64 11.64 0 01-7 2s9 5 20 5a9.5 9.5 0 00-9-5.5c4.75 2.25 7-7 7-7"/></svg>
+                            Twitter verified {p.twitterConfidence && `(${Math.round(p.twitterConfidence * 100)}%)`}
+                          </span>
+                        )}
+                      </div>
+                    )}
                     <div className="rank-bar">
                       <div className="rank-fill" style={{ width: `${Math.round((p.votes / maxVotes) * 100)}%` }} />
                     </div>
@@ -275,7 +305,7 @@ export default function CommunityTriggersPage() {
         {/* Footer note */}
         {filtered.length > 0 && (
           <p style={{ fontSize: 11, color: "rgba(255,255,255,0.2)", textAlign: "center", marginTop: 28, lineHeight: 1.7 }}>
-            Reports are news-verified at submission. Only reports with more than 50% zone votes move to review.
+            Reports are verified against news feeds (NewsData.io) and real-time social media (Twitter). Approved if verified by either source. Reports with 50%+ zone votes move to automatic review.
           </p>
         )}
       </div>

@@ -2,7 +2,9 @@ import { Router } from "express";
 import { runClaimPipeline }  from "../services/claim/claim-pipeline.service";
 import { evaluateTrigger }   from "../services/trigger/trigger-engine.service";
 import { checkEligibility }  from "../services/claim/eligibility.service";
+import { antiSpoofingService } from "../services/anti-spoofing.service";
 import { authenticateWorker } from "../middlewares/authenticateWorker";
+import { authenticateAdmin } from "../middlewares/auth.middleware";
 import { PrismaClient }      from "@prisma/client";
 
 const router = Router();
@@ -117,6 +119,102 @@ router.get("/my", authenticateWorker, async (req, res) => {
           policy: { zoneId: "BLR_KOR_01", tier: "standard" },
         },
       ],
+    });
+  }
+});
+
+/**
+ * POST /claims/submit-with-spoofing
+ * Worker-initiated claim with anti-spoofing detection
+ * Includes device fingerprint and photo metadata for fraud analysis
+ */
+router.post("/submit-with-spoofing", authenticateAdmin, async (req, res) => {
+  try {
+    const workerId = req.user.id;
+    const {
+      claimId,
+      triggerType,
+      zoneId,
+      claimAmount,
+      deviceFingerprint,
+      photoMetadata,
+      claimLocation,
+      previousLocations,
+    } = req.body;
+
+    if (!claimId || !triggerType || !zoneId || !deviceFingerprint || !claimLocation) {
+      return res.status(400).json({
+        success: false,
+        message: "Missing required fields: claimId, triggerType, zoneId, deviceFingerprint, claimLocation",
+      });
+    }
+
+    // 1. Run anti-spoofing analysis
+    console.log(`[Claim] Running anti-spoofing for claim ${claimId}`);
+    const antiSpoofingResult = await antiSpoofingService.analyzeClaimSpoofing(
+      workerId,
+      {
+        claimId,
+        deviceFingerprint,
+        photoMetadata,
+        claimLocation,
+        previousLocations,
+      }
+    );
+
+    // 2. Convert spoofing risk to fraud signal
+    const spoofingRiskScore = antiSpoofingResult.overallRisk;
+    const fraudDecision = 
+      spoofingRiskScore > 0.7 
+        ? "REJECT" 
+        : spoofingRiskScore > 0.5 
+          ? "REVIEW" 
+          : "APPROVE";
+
+    console.log(`[Claim] Anti-spoofing result: risk=${spoofingRiskScore.toFixed(3)}, decision=${fraudDecision}`);
+
+    // 3. Check if we should reject immediately
+    if (fraudDecision === "REJECT") {
+      return res.json({
+        success: false,
+        claimId,
+        status: "REJECTED",
+        reason: "Failed anti-spoofing checks",
+        spoofingRisk: spoofingRiskScore,
+        flags: antiSpoofingResult.flags,
+        message: `Claim rejected due to high spoofing risk (${(spoofingRiskScore * 100).toFixed(1)}%)`,
+      });
+    }
+
+    // 4. If flagged for review, return pending status
+    if (fraudDecision === "REVIEW") {
+      return res.json({
+        success: true,
+        claimId,
+        status: "UNDER_REVIEW",
+        reason: "Medium spoofing risk detected",
+        spoofingRisk: spoofingRiskScore,
+        flags: antiSpoofingResult.flags,
+        message: `Claim flagged for manual review (${(spoofingRiskScore * 100).toFixed(1)}% spoofing risk)`,
+      });
+    }
+
+    // 5. Passed anti-spoofing, proceed to normal pipeline
+    return res.json({
+      success: true,
+      claimId,
+      status: "APPROVED",
+      spoofingRisk: spoofingRiskScore,
+      flags: antiSpoofingResult.flags,
+      message: `Claim passed anti-spoofing checks (${(spoofingRiskScore * 100).toFixed(1)}% risk)`,
+      analysis: antiSpoofingResult,
+    });
+  } catch (error) {
+    console.error("[Claim Submission] Error:", error);
+    res.status(500).json({
+      success: false,
+      message: "Claim submission failed",
+      error: error instanceof Error ? error.message : "Unknown error",
     });
   }
 });

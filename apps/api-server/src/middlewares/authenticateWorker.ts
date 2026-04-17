@@ -31,25 +31,36 @@ export async function authenticateWorker(req: Request, res: Response, next: Next
       return res.status(401).json({ success: false, message: "Invalid auth token" });
     }
 
-    let worker = await prisma.worker.findUnique({ where: { phone } });
-    if (!worker) {
-      worker = await prisma.worker.create({
-        data: {
-          phone,
-          name: `Worker-${phone.slice(-4)}`,
-        },
-      });
-    }
+    try {
+      let worker = await prisma.worker.findUnique({ where: { phone } });
+      if (!worker) {
+        worker = await prisma.worker.create({
+          data: {
+            phone,
+            name: `Worker-${phone.slice(-4)}`,
+          },
+        });
+      }
 
-    req.user = {
-      id: worker.id,
-      role: "worker",
-      zoneId: worker.zoneId ?? undefined,
-    };
+      req.user = {
+        id: worker.id,
+        role: "worker",
+        zoneId: worker.zoneId ?? undefined,
+      };
+    } catch (dbErr) {
+      // Database error - fall back to minimal user object based on token
+      console.warn("[authenticateWorker] Database error, using token-based auth:", dbErr);
+      const workerId = `worker-${Buffer.from(phone).toString('hex').slice(0, 16)}`;
+      req.user = {
+        id: workerId,
+        role: "worker",
+        zoneId: undefined,
+      };
+    }
 
     next();
   } catch (err) {
-    console.error("[authenticateWorker]", err);
+    console.error("[authenticateWorker] Fatal error:", err);
     return res.status(500).json({ success: false, message: "Authentication failed" });
   }
 }

@@ -8,6 +8,8 @@ import workerRoutes from "./routes/worker.routes";
 import communityTriggersRoutes from "./routes/community-triggers.routes";
 import workerDashboardRoutes from "./routes/worker-dashboard.routes";
 import feedsRoutes from "./routes/feeds.routes";
+import adminRoutes from "./routes/admin.routes";
+import antiSpoofingRoutes from "./routes/anti-spoofing.routes";
 
 const app = express();
 
@@ -29,5 +31,7 @@ app.use("/worker", workerRoutes);
 app.use("/api/community-triggers", communityTriggersRoutes);
 app.use("/api/worker-dashboard", workerDashboardRoutes);
 app.use("/feeds", feedsRoutes);
+app.use("/admin", adminRoutes);
+app.use("/api", antiSpoofingRoutes);
 
 export default app;

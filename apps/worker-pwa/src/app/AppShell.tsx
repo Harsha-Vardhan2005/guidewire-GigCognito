@@ -12,7 +12,7 @@ const STYLES = `
 
 const NAV = [
   { id: "home", icon: "⊞", label: "Home", path: "/dashboard" },
-  { id: "policy", icon: "🛡", label: "Policy", path: "/policy" },
+  { id: "policy", icon: "�", label: "Policy", path: "/policy" },
   { id: "claims", icon: "💸", label: "Claims", path: "/claims" },
   { id: "vote", icon: "🗳️", label: "Vote", path: "/community-triggers" },
   { id: "transparency", icon: "👁️", label: "Transparency", path: "/transparency-dashboard" },
