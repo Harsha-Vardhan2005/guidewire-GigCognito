@@ -1,28 +1,9 @@
 import { TRIGGER_THRESHOLDS } from "@gigshield/shared-config";
 import { evaluateTrigger } from "./trigger-engine.service";
+import { isTriggerApprovedForZone } from "../worker/community-triggers.service";
 
 const CURFEW_API_URL = process.env.CURFEW_FEED_URL ?? "MOCK";
 
-/**
- * Mock curfew calendar keyed by zone → array of month-days (day-of-month) that
- * have active curfew orders in the simulation window (April 2025).
- */
-const MOCK_CURFEW_CALENDAR: Record<string, number[]> = {
-  DEL_DWK_01: [10, 11, 12], // communal tension simulation
-  DEL_NOR_01: [10, 11],
-  BLR_KOR_01: [14], // election eve restriction
-  BLR_HSR_01: [],
-  BLR_IND_01: [],
-  PNE_KSB_01: [],
-  PNE_KHR_01: [],
-  MUM_ANH_01: [],
-  MUM_BAN_01: [],
-};
-
-function isMockCurfewActive(zoneId: string): boolean {
-  const today = new Date().getDate();
-  return (MOCK_CURFEW_CALENDAR[zoneId] ?? []).includes(today);
-}
 
 function mockCurfewDecision(zone: { id: string }) {
   const active = isMockCurfewActive(zone.id);

@@ -36,6 +36,16 @@ function normalizeText(text: string): string {
   return (text || "").toLowerCase();
 }
 
+function normalizeTriggerType(input?: string, title?: string, description?: string): string {
+  const text = `${normalizeText(input || "")} ${normalizeText(title || "")} ${normalizeText(description || "")}`;
+  if (text.includes("curfew") || text.includes("section 144")) return "T5_CURFEW";
+  if (text.includes("festival") || text.includes("procession")) return "T6_FESTIVAL";
+  if (text.includes("aqi") || text.includes("pollution")) return "T2_AQI";
+  if (text.includes("heat") || text.includes("heatwave")) return "T4_HEATWAVE";
+  if (text.includes("rain") || text.includes("flood")) return "T1_RAINFALL";
+  return input || "CUSTOM";
+}
+
 async function getEligibleVoterCount(zoneId: string): Promise<number> {
   const count = await prisma.worker.count({ where: { zoneId } });
   return Math.max(1, count);
@@ -149,6 +159,39 @@ async function evaluateProposalState(proposal: Proposal): Promise<Proposal> {
     return proposal;
   }
 
+  // Curfew proposals require one more online verification pass after crossing 50% area votes.
+  if (proposal.triggerType === "T5_CURFEW") {
+    const recheck = await verifyWithLocalSources({
+      zoneId: proposal.zoneId,
+      title: proposal.title,
+      description: proposal.description,
+    });
+
+    proposal.newsVerified = recheck.verified;
+    proposal.verificationSource = recheck.source;
+    proposal.verificationEvidence = [
+      ...proposal.verificationEvidence,
+      ...recheck.evidence,
+    ];
+
+    if (!recheck.verified) {
+      proposal.status = "REJECTED";
+      proposal.verificationEvidence = setStatusEvidence(
+        proposal.verificationEvidence,
+        "Rejected: online local-news verification failed after vote threshold"
+      );
+      return proposal;
+    }
+
+    proposal.status = "APPROVED";
+    proposal.approvedAt = new Date().toISOString();
+    proposal.verificationEvidence = setStatusEvidence(
+      proposal.verificationEvidence,
+      "Curfew approved: >=50% zone votes and online local-news verification passed"
+    );
+    return proposal;
+  }
+
   proposal.status = "UNDER_REVIEW";
   proposal.verificationEvidence = setStatusEvidence(proposal.verificationEvidence, "News verified and vote threshold met; sent for review");
 
@@ -172,7 +215,7 @@ export async function proposeTrigger(workerId: string, title: string, descriptio
     id,
     title,
     description,
-    triggerType,
+    triggerType: normalizeTriggerType(triggerType, title, description),
     proposer: workerId,
     zoneId: worker.zoneId,
     votes: 1,
@@ -224,4 +267,12 @@ export function listProposals() {
     createdAt: p.createdAt,
     approvedAt: p.approvedAt,
   }));
+}
+
+export function isTriggerApprovedForZone(zoneId: string, triggerType: string) {
+  const latestMatching = Object.values(proposals)
+    .filter((p) => p.zoneId === zoneId && p.triggerType === triggerType)
+    .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())[0];
+
+  return Boolean(latestMatching && latestMatching.status === "APPROVED");
 }
