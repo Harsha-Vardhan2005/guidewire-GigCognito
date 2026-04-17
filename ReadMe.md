@@ -31,10 +31,11 @@ Phase 2 implementation complete. All core systems are live and API-backed.
 ### Running the demo locally
 
 1. Start API server: `cd apps/api-server && pnpm dev` (port 8000)
-2. Start worker PWA: `cd apps/worker-pwa && pnpm dev`
-3. Start ML service: `cd apps/ml-service && uvicorn app.main:app --port 5001`
-4. Trained model artifacts (`xgboost_pricing.pkl`, `fraud_classifier.pkl`) are present in `apps/ml-service/app/artifacts/`
-5. All trigger endpoints work without external API keys (mock fallbacks active)
+2. Start ML service: `cd apps/ml-service && source venv/bin/activate && uvicorn app.main:app --reload --port 8001`
+3. Start worker PWA: `cd apps/worker-pwa && pnpm dev` (port 5173)
+4. Start admin dashboard: `cd apps/admin-dashboard && pnpm dev` (port 3000)
+5. Trained model artifacts (`xgboost_pricing.pkl`, `fraud_classifier.pkl`) are present in `apps/ml-service/app/artifacts/`
+6. All trigger endpoints work without external API keys (mock fallbacks active)
 
 ---
 
@@ -525,27 +526,21 @@ Three distinct ML components, each solving a specific problem:
 | Zone | City | ML Adjustment | Direction |
 |---|---|---|---|
 | Kharadi | Pune | −12.2/week | ↓ Discount (low disruption) |
-| Kasba Peth | Pune | −10.1/week | ↓ Discount |
+| Andheri | Mumbai | +20.8/week | ↑ Surcharge (high waterlogging) |
+| Koramangala | Bengaluru | −8.5/week | ↓ Discount |
 | HSR Layout | Bengaluru | +9.5/week | ↑ Surcharge |
 | Bandra | Mumbai | +19.4/week | ↑ Surcharge (coastal + flooding) |
-| Andheri | Mumbai | +20.8/week | ↑ Surcharge (high waterlogging) |
 
 **Input features (per worker, per week):**
 ```json
 {
-  "zone_id": "BLR_KOR_01",
-  "season": "monsoon",
-  "zone_historical_disruption_rate": 0.23,
-  "forecast_rainfall_next_7_days": 62.1,
-  "aqi_avg_last_week": 142,
-  "worker_claims_last_4_weeks": 1,
-  "peer_avg_claims_same_zone": 0.8,
-  "worker_platform_tenure_months": 14,
-  "worker_active_hours_profile": "daytime"
+  "zone_id": "BLR_KHR_01",
+  "coverage_amount": 10000,
+  "policy_duration_weeks": 4
 }
 ```
 
-**Output:** `weekly_premium` (₹49–₹149, tier-adjusted) + `zone_safety_note` (displayed to worker during onboarding)
+**Output:** `weekly_adjustment`, `zone_label`, `zone_disruption_rate`, `risk_tier`, `zone_safety_note`, `features_used`, `model`
 
 **Serving:** Python FastAPI microservice (`POST /pricing/quote`), called from Node backend via `POST /policy/ml-quote` at policy renewal. Graceful fallback to rule-based pricing if ML service is unavailable.
 
@@ -963,6 +958,7 @@ Workers navigating to `/claim-processing` see the 6-step animated zero-touch pip
 
 - Node.js 20+
 - pnpm 9+
+- Python 3.8+
 - PostgreSQL (for Prisma-backed API data)
 
 ### Install dependencies
@@ -971,6 +967,7 @@ From repo root:
 
 ```bash
 pnpm install
+cd apps/ml-service && python3 -m venv venv && source venv/bin/activate && pip install -r requirements.txt
 ```
 
 ### Run API server
@@ -984,6 +981,17 @@ Expected local API base URL:
 
 - `http://localhost:8000`
 
+### Run ML service
+
+```bash
+cd apps/ml-service
+source venv/bin/activate && uvicorn app.main:app --reload --port 8001
+```
+
+Expected local ML service URL:
+
+- `http://localhost:8001`
+
 ### Run worker app
 
 In another terminal:
@@ -993,6 +1001,23 @@ cd apps/worker-pwa
 pnpm dev
 ```
 
+Expected local worker PWA URL:
+
+- `http://localhost:5173`
+
+### Run admin dashboard
+
+In another terminal:
+
+```bash
+cd apps/admin-dashboard
+pnpm dev
+```
+
+Expected local admin dashboard URL:
+
+- `http://localhost:3000`
+
 ### Phase 2 API Endpoints
 
 | Endpoint | Method | Description |
@@ -1000,15 +1025,23 @@ pnpm dev
 | `/triggers/status` | GET | Live trigger state for all 9 zones × 7 trigger types |
 | `/triggers/simulate` | POST | Simulate any trigger: `{ type, zoneId, intensity: "low"\|"high" }` |
 | `/triggers/types` | GET | Trigger type metadata |
-| `/policy/ml-quote` | POST | ML-adjusted premium: `{ zoneId, tier }` → returns `weekly_premium`, `ml_adjustment`, `zone_safety_note` |
+| `/policy/ml-quote` | POST | ML-adjusted premium: `{ zoneId, coverage_amount, policy_duration_weeks }` → returns `weekly_adjustment`, `zone_label`, `zone_disruption_rate`, `features_used`, `model` |
 | `/claims/my` | GET | Authenticated claim history (requires Bearer token) |
+
+### ML Service Endpoints
+
+| Endpoint | Method | Description |
+|---|---|---|
+| `/pricing/quote` | POST | XGBoost pricing model: `{ zone_id, coverage_amount, policy_duration_weeks }` |
+| `/fraud/predict` | POST | RandomForest fraud detection: `{ amount, frequency, location_pattern, timing_pattern }` |
+| `/curfew/classify` | POST | Curfew NLP classification: `{ text, zone_id }` |
 
 ### Common issue checklist
 
 - If `EADDRINUSE` appears, another process is already using port `8000`.
 - If dashboard does not reflect new zone/city, re-check onboarding save + token session.
 - If frontend shows stale values, restart both API and worker app after config changes.
-- ML service must be running on port 5001 for `/policy/ml-quote` to use live model; falls back to rule-based pricing if unavailable.
+- ML service must be running on port 8001 for `/policy/ml-quote` to use live model; falls back to rule-based pricing if unavailable.
 - Trigger mock fallbacks are active by default — no API keys needed for demo.
 
 ---
