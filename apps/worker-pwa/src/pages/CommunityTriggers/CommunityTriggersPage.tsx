@@ -5,16 +5,82 @@ interface Proposal {
   title: string;
   description: string;
   votes: number;
+  voteShare?: number;
+  eligibleVoters?: number;
   status: string;
   createdAt: string;
   newsVerified?: boolean;
-  twitterVerified?: boolean;
-  twitterConfidence?: number;
-  newsEvidence?: string[];
-  twitterEvidence?: string[];
+  verificationSource?: string;
+  verificationEvidence?: string[];
+  evidenceSignals?: number;
+  confidenceScore?: number;
+  primaryEvidence?: "NEWS" | "LIVE_PHOTO" | "NEWS_AND_PHOTO";
+  ringDecision?: {
+    isRing: boolean;
+    action: "PASS" | "CIRCUIT_BREAK" | "INVESTIGATE";
+    flags: string[];
+  };
+  voteEvidence?: {
+    provided: boolean;
+    accepted: boolean;
+    duplicate?: {
+      proposalId: string;
+      evidenceId: string;
+      pHashDistance: number;
+      cosineSimilarity: number;
+    };
+  };
 }
 
+type LocationPayload = { lat: number; lng: number };
+
+type VotePhotoMap = Record<string, { dataUrl: string; fileName: string }>;
+
 const API_BASE = import.meta.env.VITE_API_URL ?? "http://localhost:8000";
+
+function readFileAsDataUrl(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => {
+      if (typeof reader.result === "string") {
+        resolve(reader.result);
+      } else {
+        reject(new Error("Invalid image payload"));
+      }
+    };
+    reader.onerror = () => reject(new Error("Failed to read image file"));
+    reader.readAsDataURL(file);
+  });
+}
+
+function buildDeviceFingerprint(): string {
+  const nav = window.navigator;
+  const bits = [
+    nav.userAgent || "unknown",
+    nav.language || "en",
+    `${window.screen.width}x${window.screen.height}`,
+    String(window.devicePixelRatio || 1),
+    nav.platform || "unknown",
+  ];
+  return bits.join("|").slice(0, 256);
+}
+
+async function getCurrentLocation(): Promise<LocationPayload | undefined> {
+  if (!navigator.geolocation) return undefined;
+
+  return new Promise((resolve) => {
+    navigator.geolocation.getCurrentPosition(
+      (position) => {
+        resolve({
+          lat: position.coords.latitude,
+          lng: position.coords.longitude,
+        });
+      },
+      () => resolve(undefined),
+      { enableHighAccuracy: true, timeout: 5000, maximumAge: 0 },
+    );
+  });
+}
 
 const STATUS_CONFIG: Record<string, { label: string; dot: string; text: string; bg: string; border: string }> = {
   APPROVED: { label: "Approved", dot: "#1D9E75", text: "#5DCAA5", bg: "rgba(29,158,117,0.10)", border: "rgba(29,158,117,0.25)" },
@@ -43,12 +109,15 @@ export default function CommunityTriggersPage() {
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
   const [triggerType, setTriggerType] = useState("");
+  const [photoDataUrl, setPhotoDataUrl] = useState("");
+  const [photoFileName, setPhotoFileName] = useState("");
   const [loading, setLoading] = useState(false);
   const [loadingList, setLoadingList] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
   const [filter, setFilter] = useState<"ALL" | "UNDER_REVIEW" | "LESS_VOTES" | "REJECTED">("ALL");
   const [votedIds, setVotedIds] = useState<Set<string>>(new Set());
+  const [votePhotos, setVotePhotos] = useState<VotePhotoMap>({});
   const [formOpen, setFormOpen] = useState(false);
 
   const authHeaders = (): Record<string, string> => {
@@ -56,44 +125,127 @@ export default function CommunityTriggersPage() {
     return token ? { Authorization: `Bearer ${token}` } : {};
   };
 
-  useEffect(() => {
-    async function load() {
-      setLoadingList(true);
-      try {
-        const res = await fetch(`${API_BASE}/api/community-triggers/list`, { headers: authHeaders() });
-        const data = await res.json();
-        if (res.ok && Array.isArray(data)) {
-          setProposals(data);
-        }
-      } catch {
-        setError("Unable to load reports right now.");
+  async function loadProposals() {
+    setLoadingList(true);
+    try {
+      const res = await fetch(`${API_BASE}/api/community-triggers/list`, { headers: authHeaders() });
+      const data = await res.json();
+      if (res.ok && Array.isArray(data)) {
+        setProposals(data);
       }
-      finally { setLoadingList(false); }
+    } catch {
+      setError("Unable to load reports right now.");
+    } finally {
+      setLoadingList(false);
     }
-    load();
+  }
+
+  useEffect(() => {
+    loadProposals();
   }, []);
+
+  async function handleProposalPhoto(file?: File | null) {
+    if (!file) {
+      setPhotoDataUrl("");
+      setPhotoFileName("");
+      return;
+    }
+
+    try {
+      const dataUrl = await readFileAsDataUrl(file);
+      setPhotoDataUrl(dataUrl);
+      setPhotoFileName(file.name || "live-photo.jpg");
+    } catch {
+      setPhotoDataUrl("");
+      setPhotoFileName("");
+      setError("Unable to read the captured photo.");
+    }
+  }
+
+  async function handleVotePhoto(proposalId: string, file?: File | null) {
+    if (!file) {
+      setVotePhotos((current) => {
+        const next = { ...current };
+        delete next[proposalId];
+        return next;
+      });
+      return;
+    }
+
+    try {
+      const dataUrl = await readFileAsDataUrl(file);
+      setVotePhotos((current) => ({
+        ...current,
+        [proposalId]: { dataUrl, fileName: file.name || "vote-photo.jpg" },
+      }));
+    } catch {
+      setError("Unable to read vote photo.");
+    }
+  }
 
   async function handlePropose(e: React.FormEvent) {
     e.preventDefault();
+    if (!photoDataUrl) {
+      setError("Capture a live photo to submit this report.");
+      return;
+    }
+
     setLoading(true); setError(null); setSuccess(null);
     try {
+      const location = await getCurrentLocation();
+      const payload: Record<string, unknown> = {
+        title,
+        description,
+        triggerType,
+        deviceFingerprint: buildDeviceFingerprint(),
+        evidencePhoto: {
+          imageDataUrl: photoDataUrl,
+          captureMode: "environment",
+          clientCapturedAt: Date.now(),
+          location,
+        },
+      };
+
       const res = await fetch(`${API_BASE}/api/community-triggers/propose`, {
         method: "POST",
         headers: { "Content-Type": "application/json", ...authHeaders() },
-        body: JSON.stringify({ title, description, triggerType }),
+        body: JSON.stringify(payload),
       });
       const data = await res.json();
+
+      if (res.status === 409 && data?.code === "DUPLICATE_EVIDENCE" && typeof data?.duplicateProposalId === "string") {
+        const voteRes = await fetch(`${API_BASE}/api/community-triggers/vote`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json", ...authHeaders() },
+          body: JSON.stringify({
+            proposalId: data.duplicateProposalId,
+            deviceFingerprint: buildDeviceFingerprint(),
+          }),
+        });
+        const voteData = await voteRes.json();
+
+        if (voteRes.ok) {
+          setVotedIds((s) => new Set([...s, data.duplicateProposalId]));
+          setProposals((p) => p.map((pr) => (pr.id === data.duplicateProposalId ? voteData : pr)));
+          setSuccess("Similar disruption already exists. Redirected to vote on the existing proposal.");
+          setTitle(""); setDescription(""); setTriggerType(""); setPhotoDataUrl(""); setPhotoFileName("");
+          setFormOpen(false);
+          await loadProposals();
+        } else {
+          setError(typeof voteData?.error === "string" ? voteData.error : "Similar report exists, but vote redirection failed.");
+        }
+
+        setLoading(false);
+        return;
+      }
+
       if (res.ok) {
-        const verificationMsg = data.newsVerified && data.twitterVerified 
-          ? "Posted. Verified by News & Twitter ✓" 
-          : data.newsVerified 
-          ? "Posted. Verified by News ✓"
-          : data.twitterVerified 
-          ? `Posted. Verified by Twitter (${Math.round(data.twitterConfidence * 100)}%) ✓`
-          : "Posted. Under review.";
+        const verificationMsg = data.newsVerified
+          ? "Posted. Verified with news + live evidence ✓"
+          : "Posted with unique live evidence ✓";
         setSuccess(verificationMsg);
         setProposals(p => [data, ...p]);
-        setTitle(""); setDescription(""); setTriggerType(""); setFormOpen(false);
+        setTitle(""); setDescription(""); setTriggerType(""); setPhotoDataUrl(""); setPhotoFileName(""); setFormOpen(false);
       } else {
         setError(typeof data?.error === "string" ? data.error : "Unable to submit report.");
       }
@@ -105,16 +257,39 @@ export default function CommunityTriggersPage() {
 
   async function handleVote(id: string) {
     if (votedIds.has(id)) return;
+
     try {
+      const location = await getCurrentLocation();
+      const votePhoto = votePhotos[id];
+
       const res = await fetch(`${API_BASE}/api/community-triggers/vote`, {
         method: "POST",
         headers: { "Content-Type": "application/json", ...authHeaders() },
-        body: JSON.stringify({ proposalId: id }),
+        body: JSON.stringify({
+          proposalId: id,
+          deviceFingerprint: buildDeviceFingerprint(),
+          evidencePhoto: votePhoto
+            ? {
+                imageDataUrl: votePhoto.dataUrl,
+                captureMode: "environment",
+                clientCapturedAt: Date.now(),
+                location,
+              }
+            : undefined,
+        }),
       });
       const data = await res.json();
       if (res.ok) {
         setVotedIds(s => new Set([...s, id]));
         setProposals(p => p.map(pr => (pr.id === id ? data : pr)));
+        if (data?.voteEvidence?.accepted) {
+          setSuccess("Vote recorded. Unique live photo counted as additional evidence.");
+        }
+        setVotePhotos((current) => {
+          const next = { ...current };
+          delete next[id];
+          return next;
+        });
       } else {
         setError(typeof data?.error === "string" ? data.error : "Unable to cast vote.");
       }
@@ -221,11 +396,42 @@ export default function CommunityTriggersPage() {
                 <p style={{ fontSize: 12, color: "rgba(255,255,255,0.4)", marginBottom: 6 }}>Details</p>
                 <textarea className="gs-input" placeholder="Describe what happened, where, and the delivery impact" value={description} onChange={e => setDescription(e.target.value)} required rows={3} />
               </div>
+              <div>
+                <p style={{ fontSize: 12, color: "rgba(255,255,255,0.4)", marginBottom: 6 }}>Live photo evidence (required)</p>
+                <input
+                  className="gs-input"
+                  type="file"
+                  accept="image/*"
+                  capture="environment"
+                  onChange={(e) => handleProposalPhoto(e.target.files?.[0] || null)}
+                  required
+                  style={{ padding: 10 }}
+                />
+                <p style={{ marginTop: 6, fontSize: 11, color: "rgba(255,255,255,0.38)", lineHeight: 1.5 }}>
+                  Capture with rear camera only. Gallery uploads are blocked by backend checks.
+                </p>
+                {photoFileName && (
+                  <p style={{ marginTop: 4, fontSize: 11, color: "#5DCAA5", fontFamily: "'Space Mono', monospace" }}>
+                    Captured: {photoFileName}
+                  </p>
+                )}
+              </div>
               {error && <p style={{ fontSize: 12, color: "#F0997B" }}>{error}</p>}
               {success && <p style={{ fontSize: 12, color: "#5DCAA5" }}>{success}</p>}
               <div style={{ display: "flex", gap: 8, marginTop: 4 }}>
                 <button type="submit" className="btn-primary" disabled={loading} style={{ flex: 2 }}>{loading ? "Submitting…" : "Submit report"}</button>
-                <button type="button" className="btn-ghost" style={{ flex: 1 }} onClick={() => setFormOpen(false)}>Cancel</button>
+                <button
+                  type="button"
+                  className="btn-ghost"
+                  style={{ flex: 1 }}
+                  onClick={() => {
+                    setFormOpen(false);
+                    setPhotoDataUrl("");
+                    setPhotoFileName("");
+                  }}
+                >
+                  Cancel
+                </button>
               </div>
             </form>
           </div>
@@ -268,33 +474,63 @@ export default function CommunityTriggersPage() {
                     <p style={{ fontSize: 15, fontWeight: 600, lineHeight: 1.35, marginBottom: 6, color: "#fff" }}>{p.title}</p>
                     <p style={{ fontSize: 13, color: "rgba(255,255,255,0.45)", lineHeight: 1.6 }}>{p.description}</p>
                     
-                    {/* Verification badges */}
-                    {(p.newsVerified || p.twitterVerified) && (
-                      <div style={{ display: "flex", gap: 6, marginBottom: 10, flexWrap: "wrap" }}>
-                        {p.newsVerified && (
-                          <span style={{ fontSize: 11, fontWeight: 600, padding: "4px 10px", borderRadius: 14, background: "rgba(29,158,117,0.15)", color: "#5DCAA5", border: "1px solid rgba(29,158,117,0.3)", display: "flex", alignItems: "center", gap: 5 }}>
-                            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><polyline points="20 6 9 17 4 12"/></svg>
-                            News verified
-                          </span>
-                        )}
-                        {p.twitterVerified && (
-                          <span style={{ fontSize: 11, fontWeight: 600, padding: "4px 10px", borderRadius: 14, background: "rgba(100,149,237,0.15)", color: "#85B7EB", border: "1px solid rgba(100,149,237,0.3)", display: "flex", alignItems: "center", gap: 5 }}>
-                            <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor"><path d="M23 3a10.9 10.9 0 01-3.14 1.53 4.48 4.48 0 00-7.86 3v1A10.66 10.66 0 013 4s-4 9 5 13a11.64 11.64 0 01-7 2s9 5 20 5a9.5 9.5 0 00-9-5.5c4.75 2.25 7-7 7-7"/></svg>
-                            Twitter verified {p.twitterConfidence && `(${Math.round(p.twitterConfidence * 100)}%)`}
-                          </span>
-                        )}
+                    <div style={{ display: "flex", gap: 6, marginBottom: 10, flexWrap: "wrap" }}>
+                      {p.newsVerified && (
+                        <span style={{ fontSize: 11, fontWeight: 600, padding: "4px 10px", borderRadius: 14, background: "rgba(29,158,117,0.15)", color: "#5DCAA5", border: "1px solid rgba(29,158,117,0.3)", display: "flex", alignItems: "center", gap: 5 }}>
+                          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><polyline points="20 6 9 17 4 12"/></svg>
+                          News corroborated
+                        </span>
+                      )}
+                      <span style={{ fontSize: 11, fontWeight: 600, padding: "4px 10px", borderRadius: 14, background: "rgba(100,149,237,0.15)", color: "#85B7EB", border: "1px solid rgba(100,149,237,0.3)" }}>
+                        Live evidence: {p.evidenceSignals ?? 0}
+                      </span>
+                      {typeof p.confidenceScore === "number" && (
+                        <span style={{ fontSize: 11, fontWeight: 600, padding: "4px 10px", borderRadius: 14, background: "rgba(239,159,39,0.15)", color: "#FAC775", border: "1px solid rgba(239,159,39,0.3)" }}>
+                          Confidence {Math.round(p.confidenceScore * 100)}%
+                        </span>
+                      )}
+                    </div>
+
+                    {p.primaryEvidence && (
+                      <p style={{ marginBottom: 8, fontSize: 11, color: "rgba(255,255,255,0.35)", fontFamily: "'Space Mono', monospace" }}>
+                        Primary evidence: {p.primaryEvidence.replace(/_/g, " + ")}
+                      </p>
+                    )}
+
+                    {p.ringDecision?.isRing && (
+                      <div style={{ marginBottom: 10, fontSize: 11, color: "#F0997B", background: "rgba(216,90,48,0.1)", border: "1px solid rgba(216,90,48,0.25)", borderRadius: 8, padding: "8px 10px", lineHeight: 1.5 }}>
+                        Coordinated anomaly watch: {p.ringDecision.flags.join("; ")}
                       </div>
                     )}
                     <div className="rank-bar">
                       <div className="rank-fill" style={{ width: `${Math.round((p.votes / maxVotes) * 100)}%` }} />
                     </div>
                   </div>
-                  <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 4, flexShrink: 0 }}>
+                  <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 6, flexShrink: 0, width: 126 }}>
                     <button className={`vote-btn${voted ? " voted" : ""}`} onClick={() => handleVote(p.id)} disabled={voted}>
                       <svg width="12" height="12" viewBox="0 0 24 24" fill={voted ? "currentColor" : "none"} stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="18 15 12 9 6 15"/></svg>
                       {p.votes}
                     </button>
                     <span style={{ fontSize: 10, color: "rgba(255,255,255,0.25)", textAlign: "center" }}>votes</span>
+                    {!voted && (
+                      <>
+                        <input
+                          type="file"
+                          accept="image/*"
+                          capture="environment"
+                          onChange={(e) => handleVotePhoto(p.id, e.target.files?.[0] || null)}
+                          style={{ width: "100%", fontSize: 10, color: "rgba(255,255,255,0.45)" }}
+                        />
+                        <span style={{ fontSize: 10, color: "rgba(255,255,255,0.25)", textAlign: "center" }}>
+                          Optional live photo
+                        </span>
+                        {votePhotos[p.id]?.fileName && (
+                          <span style={{ fontSize: 10, color: "#5DCAA5", textAlign: "center", fontFamily: "'Space Mono', monospace" }}>
+                            {votePhotos[p.id].fileName.slice(0, 16)}
+                          </span>
+                        )}
+                      </>
+                    )}
                   </div>
                 </div>
               </div>
@@ -305,7 +541,7 @@ export default function CommunityTriggersPage() {
         {/* Footer note */}
         {filtered.length > 0 && (
           <p style={{ fontSize: 11, color: "rgba(255,255,255,0.2)", textAlign: "center", marginTop: 28, lineHeight: 1.7 }}>
-            Reports are verified against news feeds (NewsData.io) and real-time social media (Twitter). Approved if verified by either source. Reports with 50%+ zone votes move to automatic review.
+            Reports are verified by local-news corroboration and live camera evidence checks (EXIF time/GPS, pHash + embedding dedupe). Similar photos are redirected to vote on existing proposals.
           </p>
         )}
       </div>

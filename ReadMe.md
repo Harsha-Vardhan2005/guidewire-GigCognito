@@ -1091,11 +1091,11 @@ Community Voting is the mechanism that turns hyperlocal worker reports into legi
   : `UNDER_REVIEW` (news verified and vote share > 50%)
 - Powered by `/src/services/worker/community-triggers.service.ts`
 
-### Planned Enhancement — Live Photo AI Duplicate Detection 🔬
+### Live Photo AI Duplicate Detection 🔬
 
-> **Status: Designed, not yet implemented.** Community voting is live. The photo verification layer described below is a planned Phase 3 feature.
+> **Status: Implemented.** Community voting now supports live camera evidence with backend deduplication and duplicate redirect-to-vote flow.
 
-For hyperlocal disruptions where no news feed can corroborate the claim (e.g., a single flooded lane, a blocked alley), text-based news verification breaks down. The planned solution:
+For hyperlocal disruptions where no news feed can corroborate the claim (e.g., a single flooded lane, a blocked alley), text-based news verification breaks down. The implemented solution:
 
 **How it works:**
 
@@ -1202,18 +1202,19 @@ For hyperlocal disruptions where no news feed can corroborate the claim (e.g., a
 
 ### Phase 3 — Scale & Optimise [April 5–17]
 
-| Task | Priority |
-|---|---|
-| Full 8-signal anti-spoofing engine | P0 |
-| Coordinated ring anomaly detection | P0 |
-| DistilBERT NLP curfew classifier (replace mock) | P0 |
-| Provisional payout UX (80/20 split) | P0 |
-| Full admin analytics dashboard | P0 |
-| TomTom traffic signal integration | P1 |
-| Hindi + Kannada localisation | P1 |
-| PWA install prompt + service worker | P1 |
-| AWS MSK (Managed Kafka) stream architecture for real-time trigger processing at city scale | P2 |
-| 5-minute demo video + final pitch deck (PDF) | P0 |
+| Task | Priority | Status |
+|---|---|---|
+| Full 8-signal anti-spoofing engine | P0 | In progress |
+| Coordinated ring anomaly detection | P0 | ✅ Done |
+| DistilBERT NLP curfew classifier (replace mock) | P0 | ✅ Done |
+| Live camera evidence + duplicate photo detection (community triggers) | P0 | ✅ Done |
+| Provisional payout UX (80/20 split) | P0 | Planned |
+| Full admin analytics dashboard | P0 | Planned |
+| TomTom traffic signal integration | P1 | Planned |
+| Hindi + Kannada localisation | P1 | Planned |
+| PWA install prompt + service worker | P1 | Planned |
+| AWS MSK (Managed Kafka) stream architecture for real-time trigger processing at city scale | P2 | Planned |
+| 5-minute demo video + final pitch deck (PDF) | P0 | Planned |
 
 ---
 

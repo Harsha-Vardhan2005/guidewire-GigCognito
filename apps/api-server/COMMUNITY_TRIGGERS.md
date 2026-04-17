@@ -1,10 +1,12 @@
-# Community Triggers with News & Twitter Verification
+# Community Triggers with Live Photo Evidence + Ring Defense
 
 ## Overview
 Workers can propose new parametric triggers for their delivery zones. All proposals are automatically verified using:
-1. **News Verification** - Cross-checks against NewsData API and local news feeds
-2. **Twitter Verification** - Real-time validation from Twitter posts about the event
-3. **Combined Scoring** - Accepts proposals if EITHER news OR Twitter provides strong evidence
+1. **Live Camera Evidence (Required on proposal)** - In-app rear camera capture only (`capture="environment"`)
+2. **EXIF Time + GPS Validation** - Rejects evidence missing EXIF timestamp, stale capture (>90 sec), or GPS mismatch
+3. **Duplicate Evidence Detection** - pHash + embedding similarity against zone photos in a 4-hour window
+4. **Local News Corroboration (Optional Boost)** - Improves proposal confidence when external reports match
+5. **Coordinated Ring Anomaly Check** - Flags temporal burst/device cluster/duplicate burst behavior
 
 ## How It Works
 
@@ -14,35 +16,56 @@ Worker submits a proposal via `POST /api/community-triggers/propose`:
 {
   "title": "Andheri East waterlogging disrupts deliveries",
   "description": "Heavy rain and stagnant water near SV Road affecting Q-commerce routes",
-  "triggerType": "T3_FLOOD"
+  "triggerType": "T3_FLOOD",
+  "deviceFingerprint": "ua|lang|screen|dpr|platform",
+  "evidencePhoto": {
+    "imageDataUrl": "data:image/jpeg;base64,...",
+    "captureMode": "environment",
+    "clientCapturedAt": 1713361200000
+  }
 }
 ```
 
-### Step 2: Dual Verification
-**News Verification:**
-- Queries NewsData API with location + keywords
-- Performs fuzzy text matching with local news reports
-- Calculates confidence score (0-1) based on relevance
+### Step 2: Live Evidence Guardrails
+**Capture Guard:**
+- Frontend uses rear camera capture mode
+- Backend enforces EXIF timestamp presence and ±90s drift window
 
-**Twitter Verification:**
-- Searches recent tweets about the zone/event
-- Scores by relevance and engagement (retweets > replies > likes)
-- Calculates confidence based on tweet volume + engagement
+**Geo-bind Guard:**
+- EXIF GPS must be within worker zone geofence radius
+- Out-of-zone evidence is rejected before proposal creation
+
+**Dedup Guard:**
+- pHash distance < 10 OR embedding cosine similarity > 0.92 => duplicate
+- Duplicate proposal attempt returns `409 DUPLICATE_EVIDENCE`
+- Worker is redirected to vote on existing proposal instead of creating a clone
 
 ### Step 3: Combined Assessment
 ```
-If (newsVerified) OR (twitterVerified AND confidence >= 0.35):
+If (livePhotoUnique):
   → Status: LESS_VOTES (waiting for zone worker votes)
 Else:
-  → Status: REJECTED (no evidence found)
+  → Status: REJECTED (invalid or duplicate evidence)
 ```
+
+News corroboration boosts confidence score but is no longer a hard prerequisite when unique live photo evidence exists.
 
 ### Step 4: Community Voting
 - Workers from that zone vote on the proposal
+- Voters can optionally attach their own live photo evidence
+- Unique vote evidence increments `evidenceSignals`
 - Needs >50% of zone workers to vote in favor
 - Moves to `UNDER_REVIEW` if threshold met
 
-### Step 5: Admin Review
+### Step 5: Coordinated Ring Anomaly Check
+- Temporal spike monitoring in a 3-minute window
+- Shared device fingerprint cluster detection
+- Duplicate evidence burst detection
+- IP prefix cluster ratio signal
+
+If anomaly action is `CIRCUIT_BREAK`, proposal/vote flow is paused for investigation.
+
+### Step 6: Admin Review
 - Accepted proposals enter the trigger pipeline
 - Can be deployed as official parametric triggers
 
@@ -106,9 +129,6 @@ GET /feeds/twitter-verify?zoneId=BLR_KOR_01&title=...&description=...
 # News Verification
 NEWSDATA_API_KEY=pub_7e32649016a94ef0ac87c5c369866875
 NEWSDATA_BASE_URL=https://newsdata.io/api/1/news
-
-# Twitter Verification (Optional)
-TWITTER_BEARER_TOKEN=<your-twitter-api-v2-token>
 ```
 
 ### News Verification Scoring
@@ -119,47 +139,45 @@ Combines three signals:
 
 **Threshold:** Score ≥ 0.16 = Verified
 
-### Twitter Verification Scoring
-- **Relevance Score** - Semantic similarity between proposal & tweet
-- **Engagement Score** - Weighted by retweets (2x), replies (1.5x), likes (1x)
-- **Combined Confidence** = 0.3 + (tweet_count/50)*0.3 + (avg_engagement/10)*0.35
-- **Threshold:** Confidence ≥ 0.35 = Verified
+### Live Evidence Scoring
+- **Dedupe:** pHash distance < 10 OR cosine similarity > 0.92 => duplicate
+- **Time-bind:** EXIF timestamp required and within ±90s of server receipt
+- **Geo-bind:** EXIF GPS must fall within worker zone geofence
+- **Evidence signals:** Proposal photo + each unique voter photo increments confidence
 
 ## Response Examples
 
-### Proposal Accepted (News Verified)
+### Proposal Accepted (Live Evidence + News)
 ```json
 {
   "id": "prop_123",
   "title": "Andheri East waterlogging disrupts deliveries",
   "status": "LESS_VOTES",
   "newsVerified": true,
-  "twitterVerified": false,
-  "verificationSource": "news",
+  "primaryEvidence": "NEWS_AND_PHOTO",
+  "verificationSource": "local-verifier",
   "verificationEvidence": [
     "NewsData — https://news.example/mumbai-waterlogging",
     "Local Report — Heavy rain stagnant water SV Road"
   ],
+  "evidenceSignals": 1,
+  "confidenceScore": 0.33,
   "votes": 1,
   "voteShare": 0.05,
   "eligibleVoters": 20
 }
 ```
 
-### Proposal Accepted (Twitter Verified)
+### Duplicate Evidence Redirect
 ```json
 {
-  "id": "prop_456",
-  "title": "Section 144 traffic controls around Koramangala",
-  "status": "LESS_VOTES",
-  "newsVerified": false,
-  "twitterVerified": true,
-  "twitterConfidence": 0.68,
-  "twitterEvidence": [
-    "Twitter: Police route restrictions announced due to law-and-order deployment...",
-    "Twitter: Section 144 imposed in Koramangala area..."
-  ],
-  "votes": 1
+  "error": "Similar disruption evidence already exists. Redirecting to vote on existing proposal.",
+  "code": "DUPLICATE_EVIDENCE",
+  "duplicateProposalId": "prop_123",
+  "similarity": {
+    "pHashDistance": 4,
+    "cosineSimilarity": 0.956
+  }
 }
 ```
 
@@ -170,10 +188,9 @@ Combines three signals:
   "title": "Random unverified event",
   "status": "REJECTED",
   "newsVerified": false,
-  "twitterVerified": false,
-  "twitterConfidence": 0,
+  "primaryEvidence": "LIVE_PHOTO",
   "verificationEvidence": [
-    "Rejected: no matching local news evidence found at submission time"
+    "Photo rejected: capture time must be within 90 seconds of submission."
   ]
 }
 ```
@@ -181,36 +198,42 @@ Combines three signals:
 ## Testing
 
 ### Mock Data (Dev Mode)
-When no API keys are configured:
+When no external feeds are configured:
 - News verification uses local mock reports
-- Twitter verification uses pre-loaded mock tweets
+- Live evidence checks still run using submitted image payload and EXIF metadata
 
 Example test scenarios:
 ```bash
-# Test 1: News-verified proposal
+# Test 1: Live photo proposal (base64 truncated)
 curl -X POST http://localhost:8000/api/community-triggers/propose \
   -H "Authorization: Bearer <token>" \
   -H "Content-Type: application/json" \
   -d '{
     "title": "Andheri East waterlogging disrupts deliveries",
-    "description": "Heavy rain and stagnant water"
+    "description": "Heavy rain and stagnant water",
+    "evidencePhoto": {
+      "imageDataUrl": "data:image/jpeg;base64,/9j/4AAQSkZJRgABAQ...",
+      "captureMode": "environment",
+      "clientCapturedAt": 1713361200000
+    }
   }'
 
 # Test 2: Check verification
 curl "http://localhost:8000/feeds/local-news?zoneId=MUM_ANH_01&title=Andheri%20waterlog"
-curl "http://localhost:8000/feeds/twitter-verify?zoneId=MUM_ANH_01&title=Andheri%20waterlog"
 ```
 
 ## Anti-Fraud Features
-1. **News Verification** - Prevents fake disruption claims
-2. **Twitter Signal Validation** - Confirms real community activity
-3. **Vote Threshold** - Requires zone consensus (>50%)
-4. **One Vote Per Worker** - Prevents manipulation
-5. **Role-Based Access** - Only authenticated workers can propose/vote
+1. **Live camera only** - No gallery bypass path in normal flow
+2. **EXIF timestamp + GPS checks** - Rejects stale or out-of-zone evidence
+3. **Photo deduplication** - Blocks coordinated image-copy fraud
+4. **Ring anomaly detector** - Detects burst/fingerprint/IP cluster patterns
+5. **Vote threshold** - Requires zone consensus (>50%)
+6. **One vote per worker** - Prevents manipulation
+7. **Role-based access** - Only authenticated workers can propose/vote
 
 ## Future Enhancements
-- [ ] Add video feed verification
-- [ ] Implement machine learning for fake disruption detection
+- [ ] Add signed hardware attestation (SafetyNet / DeviceCheck)
+- [ ] Move evidence embeddings to vector DB for long-window matching
+- [ ] Add on-device blur detection before upload
 - [ ] Real-time feed aggregation from state disaster management
-- [ ] SMS alerts when high-confidence triggers detected
 - [ ] Payout history tied to each trigger

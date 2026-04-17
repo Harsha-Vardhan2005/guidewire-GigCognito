@@ -106,7 +106,7 @@ router.get("/types", (_req, res) => {
     { type: "T2_AQI",      label: "Severe Air Quality", threshold: "AQI ≥ 300",    payoutHours: 4, sources: ["OpenAQ", "CPCB"] },
     { type: "T3_FLOOD",    label: "Flash Flood",        threshold: "Rain + high waterlogging index", payoutHours: 8, sources: ["Derived from T1", "NDMA"] },
     { type: "T4_HEATWAVE", label: "Heatwave",           threshold: "≥ 40°C + advisory", payoutHours: 4, sources: ["OpenWeatherMap", "IMD"] },
-    { type: "T5_CURFEW",   label: "Curfew / Section 144", threshold: "Official order active", payoutHours: 6, sources: ["Police Advisory Feed", "News APIs"] },
+    { type: "T5_CURFEW",   label: "Curfew / Section 144", threshold: "NLP confidence >= 0.92 + official source", payoutHours: 6, sources: ["PIB/State Official Feed", "DistilBERT NLP Classifier"] },
     { type: "T6_FESTIVAL", label: "Festival Disruption", threshold: "Major festival day", payoutHours: 3, sources: ["Google Calendar API", "State Calendar"] },
     { type: "T7_OUTAGE",   label: "Power / Internet Outage", threshold: "Grid score ≥ 80", payoutHours: 2, sources: ["DISCOM Feed", "State Grid"] },
   ]);
